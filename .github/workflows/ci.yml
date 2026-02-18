@@ -45,11 +45,15 @@ jobs:
 
           Write-Host "Built GizmoSQL.mez ($(Get-Item GizmoSQL.mez | Select-Object -ExpandProperty Length) bytes)"
 
-      - name: Download MakePQX
+      - name: Install Power Query SDK Tools
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://aka.ms/makepqx" -OutFile "MakePQX.exe"
-          Write-Host "Downloaded MakePQX.exe"
+          $nugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.PowerQuery.SdkTools"
+          Invoke-WebRequest -Uri $nugetUrl -OutFile "sdktools.zip"
+          Expand-Archive -Path "sdktools.zip" -DestinationPath "sdktools"
+          $makePqx = Get-ChildItem -Path "sdktools" -Filter "MakePQX.exe" -Recurse | Select-Object -First 1
+          Copy-Item $makePqx.FullName "MakePQX.exe"
+          Write-Host "Installed MakePQX from Microsoft.PowerQuery.SdkTools"
 
       - name: Pack .mez into .pqx
         shell: pwsh
@@ -86,10 +90,14 @@ jobs:
         with:
           name: GizmoSQL.pqx
 
-      - name: Download MakePQX (for verification)
+      - name: Install Power Query SDK Tools (for verification)
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://aka.ms/makepqx" -OutFile "MakePQX.exe"
+          $nugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.PowerQuery.SdkTools"
+          Invoke-WebRequest -Uri $nugetUrl -OutFile "sdktools.zip"
+          Expand-Archive -Path "sdktools.zip" -DestinationPath "sdktools"
+          $makePqx = Get-ChildItem -Path "sdktools" -Filter "MakePQX.exe" -Recurse | Select-Object -First 1
+          Copy-Item $makePqx.FullName "MakePQX.exe"
 
       - name: Azure login via OIDC
         uses: azure/login@v2
