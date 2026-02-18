@@ -1,6 +1,6 @@
-# GizmoSQL Power BI Connector
+# [GizmoSQL](https://gizmodata.com/gizmosql) Power BI Connector
 
-A Power Query custom connector (`.pqx`) that wraps the [GizmoSQL ODBC driver](https://github.com/gizmodata/gizmosql-odbc-driver), enabling Power BI Desktop users to connect to GizmoSQL via **Get Data > Database > GizmoSQL**.
+A Power Query custom connector (`.pqx`) that wraps the [GizmoSQL ODBC driver](https://github.com/gizmodata/gizmosql-odbc-driver), enabling Power BI Desktop users to connect to [GizmoSQL](https://gizmodata.com/gizmosql) via **Get Data > Database > GizmoSQL**.
 
 ## Features
 
@@ -79,10 +79,10 @@ To verify query folding, right-click a step in the Power Query Editor and select
 
 ```powershell
 # Create .mez by zipping connector files
-$files = @("GizmoSQL.pq", "GizmoSQL.query.pq", "Diagnostics.pqm", "OdbcConstants.pqm",
-           "resources.resx", "GizmoSQL16.png", "GizmoSQL20.png", "GizmoSQL24.png",
-           "GizmoSQL32.png", "GizmoSQL40.png", "GizmoSQL48.png", "GizmoSQL64.png")
-Compress-Archive -Path $files -DestinationPath "GizmoSQL.zip"
+$staging = New-Item -ItemType Directory -Path "staging" -Force
+Copy-Item "GizmoSQL.pq","GizmoSQL.query.pq","Diagnostics.pqm","OdbcConstants.pqm","resources.resx" $staging
+Copy-Item "icons\*.png" $staging
+Compress-Archive -Path "staging\*" -DestinationPath "GizmoSQL.zip"
 Rename-Item "GizmoSQL.zip" "GizmoSQL.mez" -Force
 ```
 
@@ -109,7 +109,7 @@ Power BI Desktop
                 └── GizmoSQL Server (DuckDB-based)
 ```
 
-The connector is a Power Query M language section document that wraps `Odbc.DataSource()`, declaring GizmoSQL's SQL dialect capabilities so Power BI generates compatible SQL for query folding and DirectQuery.
+The connector is a Power Query M language section document that wraps `Odbc.DataSource()`, declaring [GizmoSQL](https://gizmodata.com/gizmosql)'s SQL dialect capabilities so Power BI generates compatible SQL for query folding and DirectQuery.
 
 ## License
 

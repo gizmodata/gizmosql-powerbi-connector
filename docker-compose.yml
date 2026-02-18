@@ -1,0 +1,18 @@
+# Docker Compose for local integration testing.
+#
+# Usage:
+#   docker compose up -d
+#   # ... run isql or other ODBC tests against localhost:31337 ...
+#   docker compose down
+
+services:
+  gizmosql:
+    image: gizmodata/gizmosql:latest
+    ports:
+      - "31337:31337"
+    environment:
+      GIZMOSQL_USERNAME: gizmosql_user
+      GIZMOSQL_PASSWORD: gizmosql_password
+      DATABASE_FILENAME: /tmp/test.duckdb
+      TLS_ENABLED: "0"
+      PRINT_QUERIES: "1"
