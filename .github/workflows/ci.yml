@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-connector:
+    runs-on: windows-latest
+    name: Build Connector
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build .mez (zipped connector)
+        shell: pwsh
+        run: |
+          $files = @(
+            "GizmoSQL.pq",
+            "GizmoSQL.query.pq",
+            "Diagnostics.pqm",
+            "OdbcConstants.pqm",
+            "resources.resx",
+            "GizmoSQL16.png",
+            "GizmoSQL20.png",
+            "GizmoSQL24.png",
+            "GizmoSQL32.png",
+            "GizmoSQL40.png",
+            "GizmoSQL48.png",
+            "GizmoSQL64.png"
+          )
+
+          $stagingDir = New-Item -ItemType Directory -Path "staging" -Force
+          foreach ($file in $files) {
+            Copy-Item $file $stagingDir
+          }
+
+          Compress-Archive -Path "staging\*" -DestinationPath "GizmoSQL.zip"
+          Rename-Item "GizmoSQL.zip" "GizmoSQL.mez"
+
+          Write-Host "Built GizmoSQL.mez ($(Get-Item GizmoSQL.mez | Select-Object -ExpandProperty Length) bytes)"
+
+      - name: Download MakePQX
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://aka.ms/makepqx" -OutFile "MakePQX.exe"
+          Write-Host "Downloaded MakePQX.exe"
+
+      - name: Pack .mez into .pqx
+        shell: pwsh
+        run: |
+          .\MakePQX.exe pack -mz GizmoSQL.mez -t GizmoSQL.pqx
+          Write-Host "Packed GizmoSQL.pqx ($(Get-Item GizmoSQL.pqx | Select-Object -ExpandProperty Length) bytes)"
+
+      - name: Upload .mez artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GizmoSQL.mez
+          path: GizmoSQL.mez
+          if-no-files-found: error
+
+      - name: Upload .pqx artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GizmoSQL.pqx
+          path: GizmoSQL.pqx
+          if-no-files-found: error
+
+  sign-connector:
+    needs: build-connector
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    name: Sign Connector
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Download .pqx artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: GizmoSQL.pqx
+
+      - name: Download MakePQX (for verification)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://aka.ms/makepqx" -OutFile "MakePQX.exe"
+
+      - name: Azure login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install sign CLI
+        run: dotnet tool install --global sign --version 0.9.1-beta.24418.1
+
+      - name: Sign .pqx with Azure Key Vault
+        shell: pwsh
+        run: |
+          sign code azure-key-vault GizmoSQL.pqx `
+            --azure-key-vault-url "${{ secrets.AZURE_KEY_VAULT_URI }}" `
+            --azure-key-vault-certificate "${{ secrets.AZURE_CERT_NAME }}" `
+            --azure-key-vault-managed-identity `
+            --timestamp-url http://timestamp.digicert.com
+
+      - name: Verify signature
+        shell: pwsh
+        run: |
+          .\MakePQX.exe verify GizmoSQL.pqx
+          Write-Host "Signature verification complete"
+
+      - name: Upload signed .pqx artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GizmoSQL-signed.pqx
+          path: GizmoSQL.pqx
+          if-no-files-found: error
+
+  release:
+    needs: sign-connector
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    name: Release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download .mez artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: GizmoSQL.mez
+          path: release
+
+      - name: Download signed .pqx artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: GizmoSQL-signed.pqx
+          path: release
+
+      - name: Generate build provenance attestations
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release/*
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" \
+            release/*
