@@ -20,25 +20,17 @@ jobs:
       - name: Build .mez (zipped connector)
         shell: pwsh
         run: |
-          $files = @(
-            "GizmoSQL.pq",
-            "GizmoSQL.query.pq",
-            "Diagnostics.pqm",
-            "OdbcConstants.pqm",
-            "resources.resx",
-            "GizmoSQL16.png",
-            "GizmoSQL20.png",
-            "GizmoSQL24.png",
-            "GizmoSQL32.png",
-            "GizmoSQL40.png",
-            "GizmoSQL48.png",
-            "GizmoSQL64.png"
-          )
-
           $stagingDir = New-Item -ItemType Directory -Path "staging" -Force
-          foreach ($file in $files) {
-            Copy-Item $file $stagingDir
-          }
+
+          # Connector source files
+          Copy-Item "GizmoSQL.pq" $stagingDir
+          Copy-Item "GizmoSQL.query.pq" $stagingDir
+          Copy-Item "Diagnostics.pqm" $stagingDir
+          Copy-Item "OdbcConstants.pqm" $stagingDir
+          Copy-Item "resources.resx" $stagingDir
+
+          # Icons (flattened into .mez root for Extension.Contents)
+          Copy-Item "icons\*.png" $stagingDir
 
           Compress-Archive -Path "staging\*" -DestinationPath "GizmoSQL.zip"
           Rename-Item "GizmoSQL.zip" "GizmoSQL.mez"
