@@ -51,14 +51,17 @@ jobs:
           $nugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.PowerQuery.SdkTools"
           Invoke-WebRequest -Uri $nugetUrl -OutFile "sdktools.zip"
           Expand-Archive -Path "sdktools.zip" -DestinationPath "sdktools"
-          $makePqx = Get-ChildItem -Path "sdktools" -Filter "MakePQX.exe" -Recurse | Select-Object -First 1
-          Copy-Item $makePqx.FullName "MakePQX.exe"
+          $makePqxDir = (Get-ChildItem -Path "sdktools" -Filter "MakePQX.exe" -Recurse | Select-Object -First 1).DirectoryName
+          Write-Host "MakePQX directory: $makePqxDir"
+          Write-Host "Contents:"
+          Get-ChildItem $makePqxDir | Select-Object Name
+          echo "MAKEPQX_DIR=$makePqxDir" >> $env:GITHUB_ENV
           Write-Host "Installed MakePQX from Microsoft.PowerQuery.SdkTools"
 
       - name: Pack .mez into .pqx
         shell: pwsh
         run: |
-          .\MakePQX.exe pack -mz GizmoSQL.mez -t GizmoSQL.pqx
+          & "$env:MAKEPQX_DIR\MakePQX.exe" pack -mz GizmoSQL.mez -t GizmoSQL.pqx
           Write-Host "Packed GizmoSQL.pqx ($(Get-Item GizmoSQL.pqx | Select-Object -ExpandProperty Length) bytes)"
 
       - name: Upload .mez artifact
@@ -96,8 +99,8 @@ jobs:
           $nugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.PowerQuery.SdkTools"
           Invoke-WebRequest -Uri $nugetUrl -OutFile "sdktools.zip"
           Expand-Archive -Path "sdktools.zip" -DestinationPath "sdktools"
-          $makePqx = Get-ChildItem -Path "sdktools" -Filter "MakePQX.exe" -Recurse | Select-Object -First 1
-          Copy-Item $makePqx.FullName "MakePQX.exe"
+          $makePqxDir = (Get-ChildItem -Path "sdktools" -Filter "MakePQX.exe" -Recurse | Select-Object -First 1).DirectoryName
+          echo "MAKEPQX_DIR=$makePqxDir" >> $env:GITHUB_ENV
 
       - name: Azure login via OIDC
         uses: azure/login@v2
@@ -121,7 +124,7 @@ jobs:
       - name: Verify signature
         shell: pwsh
         run: |
-          .\MakePQX.exe verify GizmoSQL.pqx
+          & "$env:MAKEPQX_DIR\MakePQX.exe" verify GizmoSQL.pqx
           Write-Host "Signature verification complete"
 
       - name: Upload signed .pqx artifact
