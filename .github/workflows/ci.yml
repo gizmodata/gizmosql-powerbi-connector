@@ -161,7 +161,7 @@ jobs:
           echo "=== All integration tests passed ==="
 
   sign-connector:
-    needs: build-connector
+    needs: [build-connector, integration-test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     name: Sign Connector
