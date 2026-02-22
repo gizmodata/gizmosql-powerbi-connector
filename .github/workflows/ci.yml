@@ -192,7 +192,7 @@ jobs:
           allow-no-subscriptions: true
 
       - name: Install sign CLI
-        run: dotnet tool install --global sign --version 0.9.1-beta.24418.1
+        run: dotnet tool install --global sign --version 0.9.1-beta.26102.1
 
       - name: Sign .pqx with Azure Key Vault
         shell: pwsh
