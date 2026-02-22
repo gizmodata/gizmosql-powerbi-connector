@@ -117,15 +117,29 @@ jobs:
           Driver      = /tmp/libgizmosql-odbc-linux-x64.so
           EOF
 
-      - name: "Test: basic SELECT"
+      - name: Run integration tests
         run: |
+          set -euo pipefail
           CONN="Driver=/tmp/libgizmosql-odbc-linux-x64.so;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
-          echo "SELECT 42 AS answer;" | isql -v -k "$CONN"
 
-      - name: "Test: DDL/DML round-trip"
-        run: |
-          CONN="Driver=/tmp/libgizmosql-odbc-linux-x64.so;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
-          isql -v -k "$CONN" << 'SQL'
+          # isql exits 0 even when SQL statements fail, so we must check output
+          run_isql() {
+            local desc=$1; shift
+            echo "--- $desc ---"
+            local output
+            output=$("$@" 2>&1) || true
+            echo "$output"
+            if echo "$output" | grep -qi '\[ISQL\]ERROR\|^\[S'; then
+              echo "FAIL: $desc"
+              return 1
+            fi
+          }
+
+          echo "=== Test 1: Basic SELECT ==="
+          run_isql "SELECT via connection string" bash -c "echo 'SELECT 42 AS answer;' | isql -v -k '$CONN'"
+
+          echo "=== Test 2: DDL/DML round-trip ==="
+          run_isql "DDL/DML round-trip" isql -v -k "$CONN" << 'SQL'
           CREATE TABLE test_table (id INTEGER, name VARCHAR, value DOUBLE)
           INSERT INTO test_table VALUES (1, 'alice', 3.14)
           INSERT INTO test_table VALUES (2, 'bob', 2.72)
@@ -138,13 +152,13 @@ jobs:
           DROP TABLE test_table
           SQL
 
-      - name: "Test: cross-connection persistence"
-        run: |
-          CONN="Driver=/tmp/libgizmosql-odbc-linux-x64.so;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
-          echo "CREATE TABLE cross_conn_test (id INTEGER, val VARCHAR);" | isql -v -k "$CONN"
-          echo "INSERT INTO cross_conn_test VALUES (1, 'hello');" | isql -v -k "$CONN"
-          echo "SELECT id, val FROM cross_conn_test;" | isql -v -k "$CONN"
-          echo "DROP TABLE cross_conn_test;" | isql -v -k "$CONN"
+          echo "=== Test 3: Cross-connection persistence ==="
+          run_isql "CREATE TABLE" bash -c "echo 'CREATE TABLE cross_conn_test (id INTEGER, val VARCHAR);' | isql -v -k '$CONN'"
+          run_isql "INSERT" bash -c "echo 'INSERT INTO cross_conn_test VALUES (1, '\''hello'\'');' | isql -v -k '$CONN'"
+          run_isql "SELECT" bash -c "echo 'SELECT id, val FROM cross_conn_test;' | isql -v -k '$CONN'"
+          run_isql "DROP TABLE" bash -c "echo 'DROP TABLE cross_conn_test;' | isql -v -k '$CONN'"
+
+          echo "=== All integration tests passed ==="
 
   sign-connector:
     needs: build-connector
