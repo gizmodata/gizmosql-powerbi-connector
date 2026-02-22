@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="GizmoSQL Power BI Connector"
+           Manufacturer="GizmoData LLC"
+           Version="!(bind.fileVersion.GizmoSqlOdbcDll)"
+           UpgradeCode="F7A8B9C0-D1E2-3456-7890-ABCDEF123456"
+           Scope="perMachine">
+
+    <Icon Id="gizmosql_odbc.ico" SourceFile="gizmosql_odbc.ico" />
+    <Property Id="ARPPRODUCTICON" Value="gizmosql_odbc.ico" />
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of GizmoSQL Power BI Connector is already installed." />
+
+    <Media Id="1" Cabinet="gizmosql.cab" EmbedCab="yes" />
+
+    <!-- Banner and dialog images -->
+    <WixVariable Id="WixUIBannerBmp" Value="banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="dialog.bmp" />
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+
+    <Feature Id="ProductFeature" Title="GizmoSQL Power BI Connector" Level="1">
+      <ComponentGroupRef Id="DriverComponents" />
+      <ComponentGroupRef Id="RegistryComponents" />
+      <ComponentGroupRef Id="ConnectorComponents" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="GizmoSQL ODBC Driver">
+        <Directory Id="LOGDIR" Name="logs" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="PersonalFolder">
+      <Directory Id="PowerBIDesktopDir" Name="Power BI Desktop">
+        <Directory Id="CustomConnectorsDir" Name="Custom Connectors" />
+      </Directory>
+    </StandardDirectory>
+  </Fragment>
+
+  <!-- ODBC driver components — same GUIDs as standalone ODBC MSI for component sharing -->
+  <Fragment>
+    <ComponentGroup Id="DriverComponents" Directory="INSTALLFOLDER">
+      <Component Id="DriverDll" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+        <File Id="GizmoSqlOdbcDll"
+              Source="!(bindpath.BinDir)\gizmosql-odbc.dll"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="ConfigFile" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+        <File Id="GizmoSqlOdbcIni"
+              Source="gizmosql-odbc.ini"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="VCRuntime" Guid="{DD8F0579-E8CD-418D-B05C-5AFA18BCC626}">
+        <File Id="vcruntime140" Source="!(bindpath.BinDir)\vcruntime140.dll" />
+        <File Id="vcruntime140_1" Source="!(bindpath.BinDir)\vcruntime140_1.dll" />
+        <File Id="msvcp140" Source="!(bindpath.BinDir)\msvcp140.dll" KeyPath="yes" />
+        <File Id="msvcp140_codecvt_ids" Source="!(bindpath.BinDir)\msvcp140_codecvt_ids.dll" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- ODBC driver registry — same GUID as standalone ODBC MSI -->
+    <ComponentGroup Id="RegistryComponents" Directory="INSTALLFOLDER">
+      <Component Id="OdbcDriverRegistry" Guid="D4E5F6A7-B8C9-0123-DEFA-234567890123">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers">
+          <RegistryValue Name="GizmoSQL ODBC Driver" Type="string" Value="Installed" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver">
+          <RegistryValue Name="Driver" Type="string" Value="[INSTALLFOLDER]gizmosql-odbc.dll" />
+          <RegistryValue Name="Setup" Type="string" Value="[INSTALLFOLDER]gizmosql-odbc.dll" />
+          <RegistryValue Name="UsageCount" Type="integer" Value="1" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <!-- Power BI connector — new component -->
+    <ComponentGroup Id="ConnectorComponents" Directory="CustomConnectorsDir">
+      <Component Id="ConnectorPqx" Guid="E5F6A7B8-C9D0-1234-EFAB-345678901234">
+        <File Id="GizmoSqlPqx"
+              Source="!(bindpath.ConnectorDir)\GizmoSQL.pqx"
+              KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
