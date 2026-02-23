@@ -210,11 +210,14 @@ jobs:
           # version mismatch). Suppress the non-zero exit code and check output instead.
           $ErrorActionPreference = "Continue"
           $output = & "$env:MAKEPQX_DIR\MakePQX.exe" verify GizmoSQL.pqx 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
           Write-Host $output
           if ($output -match "not signed|invalid signature|verification failed") {
-            throw "Signature verification failed"
+            Write-Host "::error::Signature verification failed"
+            exit 1
           }
-          Write-Host "Signature verification complete"
+          Write-Host "Signature verification complete (MakePQX exit code: $exitCode)"
+          exit 0
 
       - name: Upload signed .pqx artifact
         uses: actions/upload-artifact@v4
