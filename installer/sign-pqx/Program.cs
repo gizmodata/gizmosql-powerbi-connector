@@ -88,8 +88,8 @@ using (Package package = Package.Open(pqxPath, FileMode.Open, FileAccess.Read))
     }
 
     var result = dsm.VerifySignatures(true);
-    Console.WriteLine(result == VerifyResult.Success ? "OK" : $"FAILED ({result})");
-    if (result != VerifyResult.Success)
+    Console.WriteLine(result == System.IO.Packaging.VerifyResult.Success ? "OK" : $"FAILED ({result})");
+    if (result != System.IO.Packaging.VerifyResult.Success)
         return 1;
 }
 
@@ -128,12 +128,15 @@ sealed class KeyVaultRsa : RSA
     public override byte[] SignHash(byte[] hash, HashAlgorithmName hashAlgorithm,
         RSASignaturePadding padding)
     {
-        var algorithm = (hashAlgorithm.Name, padding) switch
+        if (padding != RSASignaturePadding.Pkcs1)
+            throw new CryptographicException($"Unsupported padding: {padding}");
+
+        var algorithm = hashAlgorithm.Name switch
         {
-            ("SHA256", _) when padding == RSASignaturePadding.Pkcs1 => SignatureAlgorithm.RS256,
-            ("SHA384", _) when padding == RSASignaturePadding.Pkcs1 => SignatureAlgorithm.RS384,
-            ("SHA512", _) when padding == RSASignaturePadding.Pkcs1 => SignatureAlgorithm.RS512,
-            _ => throw new CryptographicException($"Unsupported: {hashAlgorithm.Name} + {padding}")
+            "SHA256" => SignatureAlgorithm.RS256,
+            "SHA384" => SignatureAlgorithm.RS384,
+            "SHA512" => SignatureAlgorithm.RS512,
+            _ => throw new CryptographicException($"Unsupported hash algorithm: {hashAlgorithm.Name}")
         };
         return _client.Sign(algorithm, hash).Signature;
     }
