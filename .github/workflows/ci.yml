@@ -191,23 +191,39 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      - name: Install sign CLI
-        run: dotnet tool install --global sign --version 0.9.1-beta.26102.1
-
-      - name: Sign .pqx with Azure Key Vault
+      - name: Download certificate from Azure Key Vault
         shell: pwsh
         run: |
-          sign code azure-key-vault GizmoSQL.pqx `
-            --azure-key-vault-url "${{ secrets.AZURE_KEY_VAULT_URI }}" `
-            --azure-key-vault-certificate "${{ secrets.AZURE_CERT_NAME }}" `
-            --timestamp-url http://timestamp.digicert.com
+          $certName = "${{ secrets.AZURE_CERT_NAME }}"
+          $vaultUrl = "${{ secrets.AZURE_KEY_VAULT_URI }}"
+
+          # Download the certificate as PFX (includes private key)
+          $pfxBase64 = az keyvault secret show --vault-name ($vaultUrl -replace 'https://|/', '') --name $certName --query value -o tsv
+          $pfxBytes = [Convert]::FromBase64String($pfxBase64)
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
+
+          # Import into LocalMachine cert store (no password — Key Vault PFX exports are unprotected)
+          $cert = Import-PfxCertificate -FilePath "$env:RUNNER_TEMP\cert.pfx" -CertStoreLocation Cert:\CurrentUser\My
+          Write-Host "Imported certificate: $($cert.Subject)"
+          Write-Host "Thumbprint: $($cert.Thumbprint)"
+          echo "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
+      - name: Sign .pqx with MakePQX
+        shell: pwsh
+        run: |
+          $sizeBefore = (Get-Item GizmoSQL.pqx).Length
+          & "$env:MAKEPQX_DIR\MakePQX.exe" sign -pqx GizmoSQL.pqx -c $env:CERT_THUMBPRINT
+          $sizeAfter = (Get-Item GizmoSQL.pqx).Length
+          Write-Host "Signed GizmoSQL.pqx ($sizeBefore -> $sizeAfter bytes)"
+          if ($sizeAfter -le $sizeBefore) {
+            throw "File size did not increase after signing — signature may not have been applied"
+          }
 
       - name: Verify signature
         shell: pwsh
         run: |
-          # MakePQX verify has a known .NET assembly bug — it verifies correctly
-          # but crashes during JSON result serialization (System.Threading.Tasks.Extensions
-          # version mismatch). Suppress the non-zero exit code and check output instead.
+          # MakePQX verify has a known .NET assembly bug — crashes during JSON
+          # result serialization. Suppress exit code and check output instead.
           $ErrorActionPreference = "Continue"
           $output = & "$env:MAKEPQX_DIR\MakePQX.exe" verify GizmoSQL.pqx 2>&1 | Out-String
           $exitCode = $LASTEXITCODE
@@ -218,6 +234,15 @@ jobs:
           }
           Write-Host "Signature verification complete (MakePQX exit code: $exitCode)"
           exit 0
+
+      - name: Clean up certificate
+        if: always()
+        shell: pwsh
+        run: |
+          Remove-Item "$env:RUNNER_TEMP\cert.pfx" -ErrorAction SilentlyContinue
+          if ($env:CERT_THUMBPRINT) {
+            Remove-Item "Cert:\CurrentUser\My\$env:CERT_THUMBPRINT" -ErrorAction SilentlyContinue
+          }
 
       - name: Upload signed .pqx artifact
         uses: actions/upload-artifact@v4
