@@ -266,9 +266,6 @@ jobs:
       - name: Run PQTest
         shell: pwsh
         run: |
-          # Show run-test help for debugging
-          & $env:PQTEST run-test --help
-
           Write-Host "Running PQTest..."
           $output = & $env:PQTEST run-test -e GizmoSQL.mez -q tests -p
           Write-Host "Raw output:"
