@@ -223,7 +223,9 @@ jobs:
           $initSql = "CREATE TABLE test_data (id INTEGER, name VARCHAR, value DOUBLE); INSERT INTO test_data VALUES (1, 'alice', 3.14), (2, 'bob', 2.72), (3, 'charlie', 1.41);"
           $logFile = Join-Path $env:GITHUB_WORKSPACE "server.log"
 
+          $serverDir = Split-Path $env:GIZMOSQL_SERVER
           $server = Start-Process -FilePath $env:GIZMOSQL_SERVER `
+              -WorkingDirectory $serverDir `
               -ArgumentList "--password gizmosql_password --print-queries --init-sql-commands `"$initSql`"" `
               -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
           echo "GIZMOSQL_PID=$($server.Id)" >> $env:GITHUB_ENV
@@ -233,7 +235,17 @@ jobs:
       - name: Wait for GizmoSQL server
         shell: pwsh
         run: |
+          $proc = Get-Process -Id $env:GIZMOSQL_PID -ErrorAction SilentlyContinue
           for ($i = 1; $i -le 30; $i++) {
+              # Check if server process is still alive
+              $proc = Get-Process -Id $env:GIZMOSQL_PID -ErrorAction SilentlyContinue
+              if (!$proc -or $proc.HasExited) {
+                  Write-Host "Server process exited early!"
+                  Write-Host "=== Server stderr ==="
+                  if (Test-Path "$env:GIZMOSQL_LOG.err") { Get-Content "$env:GIZMOSQL_LOG.err" }
+                  Write-Error "GizmoSQL server exited prematurely"
+                  exit 1
+              }
               try {
                   $tcp = New-Object Net.Sockets.TcpClient
                   $tcp.Connect("localhost", 31337)
