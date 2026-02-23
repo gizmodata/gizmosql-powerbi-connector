@@ -4,13 +4,21 @@ section GizmoSQL;
 // Diagnostics module for trace logging (disable for release builds)
 EnableTraceOutput = false;
 
-// Load helper modules
-Diagnostics = Extension.LoadFunction("Diagnostics"),
-    Diagnostics.LogValue = if EnableTraceOutput then Diagnostics[LogValue] else (prefix, value, optional delayed) => value,
-    Diagnostics.LogValue2 = if EnableTraceOutput then Diagnostics[LogValue2] else (prefix, value, result, optional delayed) => result,
-    Diagnostics.LogFailure = if EnableTraceOutput then Diagnostics[LogFailure] else (text, function) => function();
+// Helper to load .pqm modules from within the extension package
+Extension.LoadFunction = (fileName as text) =>
+    let
+        binary = Extension.Contents(fileName),
+        asText = Text.FromBinary(binary)
+    in
+        Expression.Evaluate(asText, #shared);
 
-ODBC = Extension.LoadFunction("OdbcConstants");
+// Load helper modules
+Diagnostics = Extension.LoadFunction("Diagnostics.pqm");
+Diagnostics.LogValue = if EnableTraceOutput then Diagnostics[LogValue] else (prefix, value, optional delayed) => value;
+Diagnostics.LogValue2 = if EnableTraceOutput then Diagnostics[LogValue2] else (prefix, value, result, optional delayed) => result;
+Diagnostics.LogFailure = if EnableTraceOutput then Diagnostics[LogFailure] else (text, function) => function();
+
+ODBC = Extension.LoadFunction("OdbcConstants.pqm");
 
 // Configuration constants
 Config_DriverName = "GizmoSQL ODBC Driver";
@@ -22,13 +30,14 @@ Config_UseCastInsteadOfConvert = true;
 Config_EnableDirectQuery = true;
 
 [DataSource.Kind = "GizmoSQL", Publish = "GizmoSQL.Publish"]
-shared GizmoSQL.Contents = (server as text, port as number, optional database as text) as table =>
+shared GizmoSQL.Contents = (server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical) as table =>
     let
         ConnectionString = [
             Driver = Config_DriverName,
             host = server,
             port = Number.ToText(port),
-            useEncryption = "true"
+            useEncryption = if useEncryption <> false then "true" else "false",
+            disableCertificateVerification = if disableCertificateVerification = true then "true" else "false"
         ],
         Credential = Extension.CurrentCredential(),
         CredentialConnectionString =
@@ -36,6 +45,8 @@ shared GizmoSQL.Contents = (server as text, port as number, optional database as
                 [ UID = Credential[Username], PWD = Credential[Password], authType = "basic" ]
             else if Credential[AuthenticationKind]? = "Key" then
                 [ token = Credential[Key], authType = "token" ]
+            else if Credential[AuthenticationKind]? = "Implicit" then
+                [ authType = "external" ]
             else
                 error Error.Record("Error", "Unsupported authentication kind"),
         OdbcDataSource = Odbc.DataSource(ConnectionString, [
@@ -73,7 +84,8 @@ GizmoSQL = [
             { "GizmoSQL.Contents", json[server], json[port] },
     Authentication = [
         UsernamePassword = [],
-        Key = []
+        Key = [],
+        Implicit = [Label = "OAuth (Browser)"]
     ],
     Label = Extension.LoadString("DataSourceLabel")
 ];

@@ -1,7 +1,4 @@
 let
-    source = GizmoSQL.Contents("localhost", 31337),
-    firstDb = source{0}[Data],
-    firstSchema = firstDb{0}[Data],
-    firstTable = firstSchema{0}[Data]
+    source = Odbc.Query("Driver=GizmoSQL ODBC Driver;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false", "SELECT 42 AS answer")
 in
-    Table.FirstN(firstTable, 5)
+    source

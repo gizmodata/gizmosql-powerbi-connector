@@ -34,9 +34,14 @@
         <Directory Id="LOGDIR" Name="logs" />
       </Directory>
     </StandardDirectory>
+    <!-- Both paths needed: Store version uses "Power BI Desktop",
+         standalone installer uses "Microsoft Power BI Desktop" -->
     <StandardDirectory Id="PersonalFolder">
+      <Directory Id="PowerBIStoreDir" Name="Power BI Desktop">
+        <Directory Id="CustomConnectorsStoreDir" Name="Custom Connectors" />
+      </Directory>
       <Directory Id="PowerBIDesktopDir" Name="Microsoft Power BI Desktop">
-        <Directory Id="CustomConnectorsDir" Name="Custom Connectors" />
+        <Directory Id="CustomConnectorsDesktopDir" Name="Custom Connectors" />
       </Directory>
     </StandardDirectory>
   </Fragment>
@@ -76,10 +81,17 @@
       </Component>
     </ComponentGroup>
 
-    <!-- Power BI connector — new component -->
-    <ComponentGroup Id="ConnectorComponents" Directory="CustomConnectorsDir">
-      <Component Id="ConnectorPqx" Guid="E5F6A7B8-C9D0-1234-EFAB-345678901234">
-        <File Id="GizmoSqlPqx"
+    <!-- Power BI connector — install to both Store and standalone paths -->
+    <ComponentGroup Id="ConnectorComponents">
+      <Component Id="ConnectorPqxStore" Guid="E5F6A7B8-C9D0-1234-EFAB-345678901234"
+                 Directory="CustomConnectorsStoreDir">
+        <File Id="GizmoSqlPqxStore"
+              Source="!(bindpath.ConnectorDir)\GizmoSQL.pqx"
+              KeyPath="yes" />
+      </Component>
+      <Component Id="ConnectorPqxDesktop" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890"
+                 Directory="CustomConnectorsDesktopDir">
+        <File Id="GizmoSqlPqxDesktop"
               Source="!(bindpath.ConnectorDir)\GizmoSQL.pqx"
               KeyPath="yes" />
       </Component>
