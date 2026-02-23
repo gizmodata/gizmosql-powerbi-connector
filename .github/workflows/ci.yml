@@ -170,19 +170,12 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download .pqx artifact
         uses: actions/download-artifact@v4
         with:
           name: GizmoSQL.pqx
-
-      - name: Install Power Query SDK Tools (for verification)
-        shell: pwsh
-        run: |
-          $nugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.PowerQuery.SdkTools"
-          Invoke-WebRequest -Uri $nugetUrl -OutFile "sdktools.zip"
-          Expand-Archive -Path "sdktools.zip" -DestinationPath "sdktools"
-          $makePqxDir = (Get-ChildItem -Path "sdktools" -Filter "MakePQX.exe" -Recurse | Select-Object -First 1).DirectoryName
-          echo "MAKEPQX_DIR=$makePqxDir" >> $env:GITHUB_ENV
 
       - name: Azure login via OIDC
         uses: azure/login@v2
@@ -191,43 +184,12 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      - name: Install sign CLI
-        run: dotnet tool install --global sign --version 0.9.1-beta.26102.1
-
       - name: Sign .pqx via Azure Key Vault
-        shell: pwsh
         run: |
-          # .pqx is an OPC package (like .vsix). The sign CLI uses Key Vault's Sign API
-          # so the private key never leaves Key Vault (works with non-exportable keys).
-          # Rename to .vsix so the sign CLI recognizes the OPC format.
-          $sizeBefore = (Get-Item GizmoSQL.pqx).Length
-          Copy-Item GizmoSQL.pqx GizmoSQL.vsix
-          sign code azure-key-vault GizmoSQL.vsix `
-            --azure-key-vault-url "${{ secrets.AZURE_KEY_VAULT_URI }}" `
-            --azure-key-vault-certificate "${{ secrets.AZURE_CERT_NAME }}" `
-            --timestamp-url http://timestamp.digicert.com
-          $sizeAfter = (Get-Item GizmoSQL.vsix).Length
-          Write-Host "Signed: $sizeBefore -> $sizeAfter bytes"
-          if ($sizeAfter -le $sizeBefore) {
-            throw "File size did not increase after signing — signature may not have been applied"
-          }
-          Move-Item -Force GizmoSQL.vsix GizmoSQL.pqx
-
-      - name: Verify signature
-        shell: pwsh
-        run: |
-          # MakePQX verify has a known .NET assembly bug — crashes during JSON
-          # result serialization. Suppress exit code and check output instead.
-          $ErrorActionPreference = "Continue"
-          $output = & "$env:MAKEPQX_DIR\MakePQX.exe" verify GizmoSQL.pqx 2>&1 | Out-String
-          $exitCode = $LASTEXITCODE
-          Write-Host $output
-          if ($output -match "not signed|invalid signature|verification failed") {
-            Write-Host "::error::Signature verification failed"
-            exit 1
-          }
-          Write-Host "Signature verification complete (MakePQX exit code: $exitCode)"
-          exit 0
+          dotnet run --project installer/sign-pqx -- `
+            "${{ secrets.AZURE_KEY_VAULT_URI }}" `
+            "${{ secrets.AZURE_CERT_NAME }}" `
+            GizmoSQL.pqx
 
       - name: Upload signed .pqx artifact
         uses: actions/upload-artifact@v4
