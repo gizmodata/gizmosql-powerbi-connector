@@ -156,6 +156,21 @@ jobs:
           Write-Error "GizmoSQL server did not start in time"
           exit 1
 
+      - name: Test ODBC driver directly (C test)
+        shell: pwsh
+        run: |
+          # Compile and run a direct ODBC test to verify driver works outside Power Query
+          $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vsWhere -latest -property installationPath
+          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation
+
+          cl.exe /nologo /W3 tests\test_sqltables.c /Fe:tests\test_sqltables.exe odbc32.lib
+          Write-Host "Compiled test_sqltables.exe"
+
+          & tests\test_sqltables.exe
+          if ($LASTEXITCODE -ne 0) { throw "Direct ODBC test failed" }
+
       - name: Set PQTest credentials
         shell: pwsh
         run: |
@@ -173,6 +188,20 @@ jobs:
           $cred | & $env:PQTEST set-credential -e GizmoSQL.mez -q tests\GizmoSQL.parameterquery.pq
           Write-Host "Credentials set successfully"
 
+      - name: Enable ODBC tracing
+        shell: pwsh
+        run: |
+          # Enable ODBC DM tracing to capture what Power Query sends to the driver
+          $tracePath = "$pwd\odbc_trace.log"
+          New-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC" -Name "Trace" -Value "1" -PropertyType String -Force -ErrorAction SilentlyContinue
+          New-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC" -Name "TraceFile" -Value $tracePath -PropertyType String -Force -ErrorAction SilentlyContinue
+          # Also try the 64-bit path
+          New-Item -Path "HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC" -Force -ErrorAction SilentlyContinue
+          New-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC" -Name "Trace" -Value "1" -PropertyType String -Force
+          New-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBC.INI\ODBC" -Name "TraceFile" -Value $tracePath -PropertyType String -Force
+          echo "ODBC_TRACE=$tracePath" >> $env:GITHUB_ENV
+          Write-Host "ODBC tracing enabled: $tracePath"
+
       - name: Run PQTest
         shell: pwsh
         run: |
@@ -183,7 +212,18 @@ jobs:
 
           $result = $output | ConvertFrom-Json
           $result | ForEach-Object {
-              Write-Host "$($_.Name): $($_.Status)"
+              Write-Host "$($_.Name): $($_.Status) (RowCount: $($_.RowCount))"
+              if ($_.Output) {
+                  Write-Host "  Output: $($_.Output | ConvertTo-Json -Compress)"
+              }
+          }
+
+          # Show ODBC trace if available
+          if (Test-Path $env:ODBC_TRACE) {
+              Write-Host "`n=== ODBC Trace (last 200 lines) ==="
+              Get-Content $env:ODBC_TRACE -Tail 200
+          } else {
+              Write-Host "No ODBC trace file found"
           }
 
           $failed = @($result | Where-Object { $_.Status -ne "Passed" })
