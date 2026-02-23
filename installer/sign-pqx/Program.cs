@@ -2,6 +2,8 @@ using System.IO;
 using System.IO.Packaging;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Cryptography.Xml;
+using System.Xml;
 using Azure.Identity;
 using Azure.Security.KeyVault.Certificates;
 using Azure.Security.KeyVault.Keys.Cryptography;
@@ -39,7 +41,8 @@ var publicCert = new X509Certificate2(kvCert.Cer);
 Console.WriteLine($"{publicCert.Subject}");
 Console.WriteLine($"Thumbprint:  {publicCert.Thumbprint}");
 
-if (publicCert.GetRSAPublicKey() is null)
+using RSA? certPubKey = publicCert.GetRSAPublicKey();
+if (certPubKey is null)
 {
     Console.Error.WriteLine("Certificate does not contain an RSA public key.");
     return 1;
@@ -47,16 +50,19 @@ if (publicCert.GetRSAPublicKey() is null)
 
 // Create Key Vault-backed RSA (private key never leaves Key Vault)
 var cryptoClient = new CryptographyClient(kvCert.KeyId, credential);
-using RSA certPubKey = publicCert.GetRSAPublicKey()!;
 RSAParameters pubParams = certPubKey.ExportParameters(includePrivateParameters: false);
 using var rsaKeyVault = new KeyVaultRsa(cryptoClient, pubParams);
 
-// Bind the Key Vault RSA to the certificate
-using X509Certificate2 signingCert = publicCert.CopyWithPrivateKey(rsaKeyVault);
-Console.WriteLine($"HasPrivateKey: {signingCert.HasPrivateKey}");
+// Phase 1: Sign with a temporary cert to create the OPC signature structure.
+// PackageDigitalSignatureManager.Sign() requires CopyWithPrivateKey which calls
+// ExportParameters(true) — impossible for Key Vault keys. So we sign with a temp
+// key first, then replace the SignatureValue and certificate in Phase 2.
+Console.Write("Creating OPC signature structure... ");
+using var tempRsa = RSA.Create(certPubKey.KeySize);
+var req = new CertificateRequest("CN=Temp", tempRsa, HashAlgorithmName.SHA256,
+    RSASignaturePadding.Pkcs1);
+using var tempCert = req.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(1));
 
-// Sign the OPC package
-Console.Write("Signing... ");
 using (Package package = Package.Open(pqxPath, FileMode.Open, FileAccess.ReadWrite))
 {
     var dsm = new PackageDigitalSignatureManager(package)
@@ -64,17 +70,82 @@ using (Package package = Package.Open(pqxPath, FileMode.Open, FileAccess.ReadWri
         CertificateOption = CertificateEmbeddingOption.InSignaturePart
     };
 
-    // Sign all parts
     var partsToSign = new List<Uri>();
     foreach (PackagePart part in package.GetParts())
         partsToSign.Add(part.Uri);
 
-    // Include OPC signature infrastructure
     partsToSign.Add(dsm.SignatureOrigin);
     partsToSign.Add(PackUriHelper.GetRelationshipPartUri(dsm.SignatureOrigin));
     partsToSign.Add(PackUriHelper.GetRelationshipPartUri(new Uri("/", UriKind.RelativeOrAbsolute)));
 
-    dsm.Sign(partsToSign, signingCert);
+    dsm.Sign(partsToSign, tempCert);
+}
+Console.WriteLine("OK");
+
+// Phase 2: Re-sign SignedInfo with Key Vault and replace the embedded certificate.
+// The reference digests (hashes of actual part content) remain valid since the
+// package content hasn't changed — only the SignatureValue and KeyInfo change.
+Console.Write("Re-signing with Key Vault... ");
+const string dsigNs = "http://www.w3.org/2000/09/xmldsig#";
+
+using (Package package = Package.Open(pqxPath, FileMode.Open, FileAccess.ReadWrite))
+{
+    var dsm = new PackageDigitalSignatureManager(package);
+
+    foreach (PackageDigitalSignature sig in dsm.Signatures)
+    {
+        PackagePart sigPart = sig.SignaturePart;
+
+        // Read signature XML
+        var doc = new XmlDocument();
+        doc.PreserveWhitespace = true;
+        using (Stream stream = sigPart.GetStream(FileMode.Open, FileAccess.Read))
+            doc.Load(stream);
+
+        var nsMgr = new XmlNamespaceManager(doc.NameTable);
+        nsMgr.AddNamespace("ds", dsigNs);
+
+        // Get SignedInfo and verify it uses RSA-SHA256
+        var signedInfoEl = (XmlElement)doc.SelectSingleNode("//ds:Signature/ds:SignedInfo", nsMgr)!;
+        string? sigMethod = signedInfoEl.SelectSingleNode("ds:SignatureMethod/@Algorithm", nsMgr)?.Value;
+        if (sigMethod != "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256")
+            throw new CryptographicException($"Expected RSA-SHA256 SignatureMethod, got: {sigMethod}");
+
+        // Canonicalize SignedInfo using inclusive C14N (matching CanonicalizationMethod)
+        var c14n = new XmlDsigC14NTransform();
+        var siDoc = new XmlDocument { PreserveWhitespace = true };
+        siDoc.LoadXml(signedInfoEl.OuterXml);
+        c14n.LoadInput(siDoc);
+        byte[] canonicalBytes;
+        using (var output = (Stream)c14n.GetOutput(typeof(Stream)))
+        using (var ms = new MemoryStream())
+        {
+            output.CopyTo(ms);
+            canonicalBytes = ms.ToArray();
+        }
+
+        // Hash the canonical SignedInfo and sign with Key Vault
+        byte[] hash = SHA256.HashData(canonicalBytes);
+        byte[] kvSignature = rsaKeyVault.SignHash(hash, HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+
+        // Replace SignatureValue
+        var sigValueNode = doc.SelectSingleNode("//ds:Signature/ds:SignatureValue", nsMgr)!;
+        sigValueNode.InnerText = Convert.ToBase64String(kvSignature);
+
+        // Replace embedded certificate with the real Key Vault cert
+        var certNode = doc.SelectSingleNode(
+            "//ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", nsMgr)!;
+        certNode.InnerText = Convert.ToBase64String(publicCert.RawData);
+
+        // Write modified XML back to the signature part
+        using (Stream stream = sigPart.GetStream(FileMode.Create, FileAccess.Write))
+        {
+            var settings = new XmlWriterSettings { CloseOutput = false };
+            using var writer = XmlWriter.Create(stream, settings);
+            doc.Save(writer);
+        }
+    }
 }
 Console.WriteLine("OK");
 
