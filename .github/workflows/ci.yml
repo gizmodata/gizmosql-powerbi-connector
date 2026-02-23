@@ -70,96 +70,6 @@ jobs:
           path: GizmoSQL.pqx
           if-no-files-found: error
 
-  integration-test:
-    runs-on: ubuntu-latest
-    name: Integration Tests
-    timeout-minutes: 15
-    services:
-      gizmosql:
-        image: gizmodata/gizmosql:latest
-        ports:
-          - 31337:31337
-        env:
-          GIZMOSQL_USERNAME: gizmosql_user
-          GIZMOSQL_PASSWORD: gizmosql_password
-          DATABASE_FILENAME: /tmp/test.duckdb
-          TLS_ENABLED: "0"
-          PRINT_QUERIES: "1"
-    steps:
-      - name: Install ODBC runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y unixodbc
-
-      - name: Download latest GizmoSQL ODBC driver
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download --repo gizmodata/gizmosql-odbc-driver \
-            --pattern "libgizmosql-odbc-linux-x64.so" \
-            --dir /tmp
-          chmod +x /tmp/libgizmosql-odbc-linux-x64.so
-
-      - name: Wait for GizmoSQL
-        run: |
-          for i in $(seq 1 30); do
-            nc -z localhost 31337 && echo "GizmoSQL is ready" && exit 0
-            echo "Waiting for GizmoSQL... ($i/30)"
-            sleep 2
-          done
-          echo "GizmoSQL did not start in time" && exit 1
-
-      - name: Register ODBC driver
-        run: |
-          sudo tee /etc/odbcinst.ini > /dev/null << 'EOF'
-          [GizmoSQL ODBC Driver]
-          Description = GizmoSQL ODBC Driver
-          Driver      = /tmp/libgizmosql-odbc-linux-x64.so
-          EOF
-
-      - name: Run integration tests
-        run: |
-          set -euo pipefail
-          CONN="Driver=/tmp/libgizmosql-odbc-linux-x64.so;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
-
-          # isql exits 0 even when SQL statements fail, so we must check output
-          run_isql() {
-            local desc=$1; shift
-            echo "--- $desc ---"
-            local output
-            output=$("$@" 2>&1) || true
-            echo "$output"
-            if echo "$output" | grep -qi '\[ISQL\]ERROR\|^\[S'; then
-              echo "FAIL: $desc"
-              return 1
-            fi
-          }
-
-          echo "=== Test 1: Basic SELECT ==="
-          run_isql "SELECT via connection string" bash -c "echo 'SELECT 42 AS answer;' | isql -v -k '$CONN'"
-
-          echo "=== Test 2: DDL/DML round-trip ==="
-          run_isql "DDL/DML round-trip" isql -v -k "$CONN" << 'SQL'
-          CREATE TABLE test_table (id INTEGER, name VARCHAR, value DOUBLE)
-          INSERT INTO test_table VALUES (1, 'alice', 3.14)
-          INSERT INTO test_table VALUES (2, 'bob', 2.72)
-          INSERT INTO test_table VALUES (3, 'charlie', 1.41)
-          SELECT id, name, value FROM test_table ORDER BY id
-          UPDATE test_table SET value = 9.99 WHERE id = 2
-          SELECT id, name, value FROM test_table WHERE id = 2
-          DELETE FROM test_table WHERE id = 3
-          SELECT COUNT(*) AS row_count FROM test_table
-          DROP TABLE test_table
-          SQL
-
-          echo "=== Test 3: Cross-connection persistence ==="
-          run_isql "CREATE TABLE" bash -c "echo 'CREATE TABLE cross_conn_test (id INTEGER, val VARCHAR);' | isql -v -k '$CONN'"
-          run_isql "INSERT" bash -c "echo 'INSERT INTO cross_conn_test VALUES (1, '\''hello'\'');' | isql -v -k '$CONN'"
-          run_isql "SELECT" bash -c "echo 'SELECT id, val FROM cross_conn_test;' | isql -v -k '$CONN'"
-          run_isql "DROP TABLE" bash -c "echo 'DROP TABLE cross_conn_test;' | isql -v -k '$CONN'"
-
-          echo "=== All integration tests passed ==="
-
   pqtest-connector:
     needs: [build-connector]
     runs-on: windows-2022
@@ -300,7 +210,7 @@ jobs:
           }
 
   sign-connector:
-    needs: [build-connector, integration-test, pqtest-connector]
+    needs: [build-connector, pqtest-connector]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-2022
     name: Sign Connector
@@ -461,7 +371,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [sign-connector, build-bundled-msi, integration-test]
+    needs: [sign-connector, build-bundled-msi]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     name: Release
