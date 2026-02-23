@@ -234,7 +234,7 @@ jobs:
           for ($i = 1; $i -le 30; $i++) {
               try {
                   $tcp = New-Object Net.Sockets.TcpClient
-                  $tcp.Connect("localhost", 31337)
+                  $tcp.Connect("127.0.0.1", 31337)
                   $tcp.Close()
                   Write-Host "GizmoSQL server is ready"
                   exit 0
