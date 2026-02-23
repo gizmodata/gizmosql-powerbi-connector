@@ -35,7 +35,7 @@
       </Directory>
     </StandardDirectory>
     <StandardDirectory Id="PersonalFolder">
-      <Directory Id="PowerBIDesktopDir" Name="Power BI Desktop">
+      <Directory Id="PowerBIDesktopDir" Name="Microsoft Power BI Desktop">
         <Directory Id="CustomConnectorsDir" Name="Custom Connectors" />
       </Directory>
     </StandardDirectory>
