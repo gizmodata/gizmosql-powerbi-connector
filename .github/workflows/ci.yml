@@ -191,69 +191,27 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      - name: Download and import signing certificate
+      - name: Install sign CLI
+        run: dotnet tool install --global sign --version 0.9.1-beta.26102.1
+
+      - name: Sign .pqx via Azure Key Vault
         shell: pwsh
         run: |
-          $certName = "${{ secrets.AZURE_CERT_NAME }}"
-          $vaultUrl = "${{ secrets.AZURE_KEY_VAULT_URI }}"
-
-          # Check content type to determine format (pkcs12 vs pem)
-          $contentType = az keyvault secret show --id "$vaultUrl/secrets/$certName" --query contentType -o tsv
-          Write-Host "Certificate content type: $contentType"
-
-          # Download the secret (contains private key + cert)
-          $secretValue = az keyvault secret show --id "$vaultUrl/secrets/$certName" --query value -o tsv
-
-          if ($contentType -eq "application/x-pem-file") {
-            # PEM format — convert to PFX for MakePQX
-            Write-Host "Converting PEM to PFX..."
-            $pemPath = "$env:RUNNER_TEMP\cert.pem"
-            Set-Content -Path $pemPath -Value $secretValue
-            $emptyPwd = [System.Security.SecureString]::new()
-            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
-              $pemPath, $emptyPwd,
-              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
-              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor
-              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet
-            )
-            $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx)
-            [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
-            Remove-Item $pemPath -ErrorAction SilentlyContinue
-          } else {
-            # PKCS#12 (PFX) format — decode base64
-            $pfxBytes = [Convert]::FromBase64String($secretValue)
-            [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
-          }
-          Write-Host "Certificate PFX: $($pfxBytes.Length) bytes"
-
-          # Import into cert store with PersistKeySet — MakePQX uses .NET
-          # PackageDigitalSignatureManager which looks up private keys via the store
-          $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor
-                   [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet
-          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
-            "$env:RUNNER_TEMP\cert.pfx", $null, $flags
-          )
-          $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
-            "My", [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
-          )
-          $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-          $store.Add($cert)
-          $store.Close()
-
-          Write-Host "Imported certificate: $($cert.Subject)"
-          Write-Host "Thumbprint: $($cert.Thumbprint)"
-          Write-Host "Has private key: $($cert.HasPrivateKey)"
-          if (-not $cert.HasPrivateKey) { throw "Certificate has no private key — cannot sign" }
-          echo "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
-
-      - name: Sign .pqx with MakePQX
-        shell: pwsh
-        run: |
+          # .pqx is an OPC package (like .vsix). The sign CLI uses Key Vault's Sign API
+          # so the private key never leaves Key Vault (works with non-exportable keys).
+          # Rename to .vsix so the sign CLI recognizes the OPC format.
           $sizeBefore = (Get-Item GizmoSQL.pqx).Length
-          & "$env:MAKEPQX_DIR\MakePQX.exe" sign GizmoSQL.pqx --certificate "$env:RUNNER_TEMP\cert.pfx"
-          if ($LASTEXITCODE -ne 0) { throw "MakePQX sign failed with exit code $LASTEXITCODE" }
-          $sizeAfter = (Get-Item GizmoSQL.pqx).Length
-          Write-Host "Signed GizmoSQL.pqx ($sizeBefore -> $sizeAfter bytes)"
+          Copy-Item GizmoSQL.pqx GizmoSQL.vsix
+          sign code azure-key-vault GizmoSQL.vsix `
+            --azure-key-vault-url "${{ secrets.AZURE_KEY_VAULT_URI }}" `
+            --azure-key-vault-certificate "${{ secrets.AZURE_CERT_NAME }}" `
+            --timestamp-url http://timestamp.digicert.com
+          $sizeAfter = (Get-Item GizmoSQL.vsix).Length
+          Write-Host "Signed: $sizeBefore -> $sizeAfter bytes"
+          if ($sizeAfter -le $sizeBefore) {
+            throw "File size did not increase after signing — signature may not have been applied"
+          }
+          Move-Item -Force GizmoSQL.vsix GizmoSQL.pqx
 
       - name: Verify signature
         shell: pwsh
@@ -270,15 +228,6 @@ jobs:
           }
           Write-Host "Signature verification complete (MakePQX exit code: $exitCode)"
           exit 0
-
-      - name: Clean up certificate
-        if: always()
-        shell: pwsh
-        run: |
-          Remove-Item "$env:RUNNER_TEMP\cert.pfx" -ErrorAction SilentlyContinue
-          if ($env:CERT_THUMBPRINT) {
-            Remove-Item "Cert:\CurrentUser\My\$env:CERT_THUMBPRINT" -ErrorAction SilentlyContinue
-          }
 
       - name: Upload signed .pqx artifact
         uses: actions/upload-artifact@v4
