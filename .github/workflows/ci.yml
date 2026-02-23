@@ -173,14 +173,19 @@ jobs:
         with:
           name: GizmoSQL.mez
 
-      - name: Download GizmoSQL server
+      - name: Install GizmoSQL server
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release download --repo gizmodata/gizmosql --pattern "gizmosql_cli_windows_amd64.zip" --dir server
-          Expand-Archive server\gizmosql_cli_windows_amd64.zip -DestinationPath server
-          Get-ChildItem server -Recurse | Select-Object FullName
+          # MSI installs server + VC++ runtime DLLs needed by DuckDB extensions
+          gh release download --repo gizmodata/gizmosql --pattern "GizmoSQL-amd64.msi" --dir server
+          Start-Process msiexec.exe -ArgumentList "/i server\GizmoSQL-amd64.msi /quiet /norestart" -Wait
+          $serverExe = "C:\Program Files\GizmoSQL\gizmosql_server.exe"
+          if (!(Test-Path $serverExe)) { throw "gizmosql_server.exe not found at $serverExe" }
+          Write-Host "GizmoSQL server installed: $serverExe"
+          Get-ChildItem "C:\Program Files\GizmoSQL" | Select-Object Name
+          echo "GIZMOSQL_SERVER=$serverExe" >> $env:GITHUB_ENV
 
       - name: Download Windows ODBC driver
         env:
@@ -203,14 +208,6 @@ jobs:
               -Name "GizmoSQL ODBC Driver" -Value "Installed" -PropertyType String -Force
           Write-Host "ODBC driver registered successfully"
 
-      - name: Install VC++ redistributable
-        shell: pwsh
-        run: |
-          # DuckDB extensions (ICU, spatial) are DLLs that need the VC++ CRT
-          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile vc_redist.x64.exe
-          Start-Process -FilePath .\vc_redist.x64.exe -ArgumentList "/install /quiet /norestart" -Wait
-          Write-Host "VC++ redistributable installed"
-
       - name: Install Power Query SDK Tools
         shell: pwsh
         run: |
@@ -223,10 +220,11 @@ jobs:
       - name: Start GizmoSQL server
         shell: pwsh
         run: |
+          $initSql = "CREATE TABLE test_data (id INTEGER, name VARCHAR, value DOUBLE); INSERT INTO test_data VALUES (1, 'alice', 3.14), (2, 'bob', 2.72), (3, 'charlie', 1.41);"
           $logFile = Join-Path $env:GITHUB_WORKSPACE "server.log"
 
-          $server = Start-Process -FilePath "server\gizmosql_server.exe" `
-              -ArgumentList "--password gizmosql_password --print-queries" `
+          $server = Start-Process -FilePath $env:GIZMOSQL_SERVER `
+              -ArgumentList "--password gizmosql_password --print-queries --init-sql-commands `"$initSql`"" `
               -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
           echo "GIZMOSQL_PID=$($server.Id)" >> $env:GITHUB_ENV
           echo "GIZMOSQL_LOG=$logFile" >> $env:GITHUB_ENV
@@ -254,27 +252,6 @@ jobs:
           if (Test-Path "$env:GIZMOSQL_LOG.err") { Get-Content "$env:GIZMOSQL_LOG.err" }
           Write-Error "GizmoSQL server did not start in time"
           exit 1
-
-      - name: Create test data
-        shell: pwsh
-        run: |
-          # Use the ODBC driver to create test data via SQL
-          $conn = New-Object System.Data.Odbc.OdbcConnection
-          $conn.ConnectionString = "Driver=GizmoSQL ODBC Driver;host=localhost;port=31337;uid=gizmosql_user;pwd=gizmosql_password;useEncryption=false"
-          $conn.Open()
-
-          $sqls = @(
-              "CREATE TABLE test_data (id INTEGER, name VARCHAR, value DOUBLE)",
-              "INSERT INTO test_data VALUES (1, 'alice', 3.14), (2, 'bob', 2.72), (3, 'charlie', 1.41)"
-          )
-          foreach ($sql in $sqls) {
-              $cmd = $conn.CreateCommand()
-              $cmd.CommandText = $sql
-              $cmd.ExecuteNonQuery() | Out-Null
-              Write-Host "Executed: $sql"
-          }
-          $conn.Close()
-          Write-Host "Test data created successfully"
 
       - name: Set PQTest credentials
         shell: pwsh
