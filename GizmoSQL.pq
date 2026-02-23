@@ -74,7 +74,7 @@ shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, op
             else
                 error Error.Record("Error", "Unsupported authentication kind"),
         OdbcDataSource = Odbc.DataSource(ConnectionString, [
-            HierarchicalNavigation = true,
+            HierarchicalNavigation = false,
             SoftNumbers = true,
             TolerateConcatOverflow = true,
             ClientConnectionPooling = true,
