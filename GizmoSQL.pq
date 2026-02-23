@@ -29,8 +29,32 @@ Config_StringLiteralEscapeCharacters = { "'" };
 Config_UseCastInsteadOfConvert = true;
 Config_EnableDirectQuery = true;
 
+// Function type with UI metadata for Power BI "Get Data" dialog
+GizmoSQL.ContentsType = type function (
+    server as (type text meta [
+        Documentation.FieldCaption = "Server",
+        Documentation.FieldDescription = "Hostname or IP address of the GizmoSQL server",
+        Documentation.SampleValues = {"localhost"}
+    ]),
+    port as (type number meta [
+        Documentation.FieldCaption = "Port",
+        Documentation.FieldDescription = "Port number of the GizmoSQL server",
+        Documentation.SampleValues = {31337}
+    ]),
+    optional useEncryption as (type logical meta [
+        Documentation.FieldCaption = "Use Encryption (TLS)",
+        Documentation.FieldDescription = "Enable TLS encryption for the connection",
+        Documentation.AllowedValues = {true, false}
+    ]),
+    optional disableCertificateVerification as (type logical meta [
+        Documentation.FieldCaption = "Disable Certificate Verification",
+        Documentation.FieldDescription = "Skip TLS certificate verification (not recommended for production)",
+        Documentation.AllowedValues = {true, false}
+    ])
+) as table;
+
 [DataSource.Kind = "GizmoSQL", Publish = "GizmoSQL.Publish"]
-shared GizmoSQL.Contents = (server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical) as table =>
+shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical) as table =>
     let
         ConnectionString = [
             Driver = Config_DriverName,
@@ -73,7 +97,7 @@ shared GizmoSQL.Contents = (server as text, port as number, optional useEncrypti
             HideNativeQuery = true
         ])
     in
-        OdbcDataSource;
+        OdbcDataSource, GizmoSQL.ContentsType);
 
 // Data source definition
 GizmoSQL = [
