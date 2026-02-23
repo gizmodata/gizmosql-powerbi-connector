@@ -203,6 +203,14 @@ jobs:
               -Name "GizmoSQL ODBC Driver" -Value "Installed" -PropertyType String -Force
           Write-Host "ODBC driver registered successfully"
 
+      - name: Install VC++ redistributable
+        shell: pwsh
+        run: |
+          # DuckDB extensions (ICU, spatial) are DLLs that need the VC++ CRT
+          Invoke-WebRequest -Uri "https://aka.ms/vs/17/release/vc_redist.x64.exe" -OutFile vc_redist.x64.exe
+          Start-Process -FilePath .\vc_redist.x64.exe -ArgumentList "/install /quiet /norestart" -Wait
+          Write-Host "VC++ redistributable installed"
+
       - name: Install Power Query SDK Tools
         shell: pwsh
         run: |
@@ -216,11 +224,13 @@ jobs:
         shell: pwsh
         run: |
           $initSql = "CREATE TABLE test_data (id INTEGER, name VARCHAR, value DOUBLE); INSERT INTO test_data VALUES (1, 'alice', 3.14), (2, 'bob', 2.72), (3, 'charlie', 1.41);"
+          $logFile = Join-Path $env:GITHUB_WORKSPACE "server.log"
 
           $server = Start-Process -FilePath "server\gizmosql_server.exe" `
               -ArgumentList "--password gizmosql_password --print-queries --init-sql-commands `"$initSql`"" `
-              -PassThru -NoNewWindow
+              -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
           echo "GIZMOSQL_PID=$($server.Id)" >> $env:GITHUB_ENV
+          echo "GIZMOSQL_LOG=$logFile" >> $env:GITHUB_ENV
           Write-Host "Started GizmoSQL server (PID: $($server.Id))"
 
       - name: Wait for GizmoSQL server
@@ -232,12 +242,18 @@ jobs:
                   $tcp.Connect("localhost", 31337)
                   $tcp.Close()
                   Write-Host "GizmoSQL server is ready"
+                  # Show server startup log
+                  if (Test-Path $env:GIZMOSQL_LOG) { Get-Content $env:GIZMOSQL_LOG }
                   exit 0
               } catch {
                   Write-Host "Waiting for GizmoSQL... ($i/30)"
                   Start-Sleep -Seconds 2
               }
           }
+          Write-Host "=== Server stdout ==="
+          if (Test-Path $env:GIZMOSQL_LOG) { Get-Content $env:GIZMOSQL_LOG }
+          Write-Host "=== Server stderr ==="
+          if (Test-Path "$env:GIZMOSQL_LOG.err") { Get-Content "$env:GIZMOSQL_LOG.err" }
           Write-Error "GizmoSQL server did not start in time"
           exit 1
 
