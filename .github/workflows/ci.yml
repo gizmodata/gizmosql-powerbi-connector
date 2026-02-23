@@ -207,7 +207,8 @@ jobs:
         run: |
           # MakePQX verify has a known .NET assembly bug — it verifies correctly
           # but crashes during JSON result serialization (System.Threading.Tasks.Extensions
-          # version mismatch). Capture output and check for actual verification errors.
+          # version mismatch). Suppress the non-zero exit code and check output instead.
+          $ErrorActionPreference = "Continue"
           $output = & "$env:MAKEPQX_DIR\MakePQX.exe" verify GizmoSQL.pqx 2>&1 | Out-String
           Write-Host $output
           if ($output -match "not signed|invalid signature|verification failed") {
