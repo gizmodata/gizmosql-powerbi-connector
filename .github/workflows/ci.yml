@@ -224,7 +224,7 @@ jobs:
 
           $server = Start-Process -FilePath $env:GIZMOSQL_SERVER `
               -ArgumentList "--password gizmosql_password --print-queries --init-sql-commands `"$initSql`"" `
-              -PassThru -NoNewWindow
+              -PassThru -WindowStyle Hidden
           echo "GIZMOSQL_PID=$($server.Id)" >> $env:GITHUB_ENV
           Write-Host "Started GizmoSQL server (PID: $($server.Id))"
 
