@@ -156,17 +156,17 @@ jobs:
           Write-Error "GizmoSQL server did not start in time"
           exit 1
 
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
       - name: Test ODBC driver directly (C test)
         shell: pwsh
         run: |
           # Compile and run a direct ODBC test to verify driver works outside Power Query
-          $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsPath = & $vsWhere -latest -property installationPath
-          Import-Module "$vsPath\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation
-
           cl.exe /nologo /W3 tests\test_sqltables.c /Fe:tests\test_sqltables.exe odbc32.lib
-          Write-Host "Compiled test_sqltables.exe"
+          Write-Host "Compiled test_sqltables.exe (64-bit)"
 
           & tests\test_sqltables.exe
           if ($LASTEXITCODE -ne 0) { throw "Direct ODBC test failed" }
