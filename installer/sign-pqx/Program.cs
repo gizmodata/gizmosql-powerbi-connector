@@ -133,10 +133,16 @@ using (Package package = Package.Open(pqxPath, FileMode.Open, FileAccess.ReadWri
         var sigValueNode = doc.SelectSingleNode("//ds:Signature/ds:SignatureValue", nsMgr)!;
         sigValueNode.InnerText = Convert.ToBase64String(kvSignature);
 
-        // Replace embedded certificate with the real Key Vault cert
-        var certNode = doc.SelectSingleNode(
-            "//ds:Signature/ds:KeyInfo/ds:X509Data/ds:X509Certificate", nsMgr)!;
-        certNode.InnerText = Convert.ToBase64String(publicCert.RawData);
+        // Rebuild KeyInfo entirely — the temp cert left behind KeyName and RSAKeyValue
+        // elements with the wrong key. KeyInfo is NOT covered by the signature, so we
+        // can safely replace it. Only include X509Data with the real Key Vault cert.
+        var keyInfoNode = doc.SelectSingleNode("//ds:Signature/ds:KeyInfo", nsMgr)!;
+        keyInfoNode.RemoveAll();
+        var x509Data = doc.CreateElement("X509Data", dsigNs);
+        var x509Cert = doc.CreateElement("X509Certificate", dsigNs);
+        x509Cert.InnerText = Convert.ToBase64String(publicCert.RawData);
+        x509Data.AppendChild(x509Cert);
+        keyInfoNode.AppendChild(x509Data);
 
         // Write modified XML back to the signature part
         using (Stream stream = sigPart.GetStream(FileMode.Create, FileAccess.Write))
