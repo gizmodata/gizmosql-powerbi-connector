@@ -217,10 +217,8 @@ jobs:
         run: |
           $initSql = "CREATE TABLE test_data (id INTEGER, name VARCHAR, value DOUBLE); INSERT INTO test_data VALUES (1, 'alice', 3.14), (2, 'bob', 2.72), (3, 'charlie', 1.41);"
 
-          $server = Start-Process -FilePath "server\gizmosql_server.exe" -ArgumentList `
-              "--password", "gizmosql_password", `
-              "--print-queries", `
-              "--init-sql-commands", $initSql `
+          $server = Start-Process -FilePath "server\gizmosql_server.exe" `
+              -ArgumentList "--password gizmosql_password --print-queries --init-sql-commands `"$initSql`"" `
               -PassThru -NoNewWindow
           echo "GIZMOSQL_PID=$($server.Id)" >> $env:GITHUB_ENV
           Write-Host "Started GizmoSQL server (PID: $($server.Id))"
