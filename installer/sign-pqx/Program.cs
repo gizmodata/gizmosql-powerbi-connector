@@ -1,9 +1,11 @@
+using System.IO;
 using System.IO.Packaging;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Azure.Identity;
 using Azure.Security.KeyVault.Certificates;
 using Azure.Security.KeyVault.Keys.Cryptography;
+using KvSignatureAlgorithm = Azure.Security.KeyVault.Keys.Cryptography.SignatureAlgorithm;
 
 if (args.Length < 3)
 {
@@ -133,9 +135,9 @@ sealed class KeyVaultRsa : RSA
 
         var algorithm = hashAlgorithm.Name switch
         {
-            "SHA256" => SignatureAlgorithm.RS256,
-            "SHA384" => SignatureAlgorithm.RS384,
-            "SHA512" => SignatureAlgorithm.RS512,
+            "SHA256" => KvSignatureAlgorithm.RS256,
+            "SHA384" => KvSignatureAlgorithm.RS384,
+            "SHA512" => KvSignatureAlgorithm.RS512,
             _ => throw new CryptographicException($"Unsupported hash algorithm: {hashAlgorithm.Name}")
         };
         return _client.Sign(algorithm, hash).Signature;
