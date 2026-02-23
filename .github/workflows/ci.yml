@@ -204,12 +204,16 @@ jobs:
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
           Write-Host "Downloaded certificate PFX ($($pfxBytes.Length) bytes)"
 
+          # Import into cert store — MakePQX uses .NET PackageDigitalSignatureManager
+          # which looks up the private key through the Windows cert store
+          $cert = Import-PfxCertificate -FilePath "$env:RUNNER_TEMP\cert.pfx" -CertStoreLocation Cert:\CurrentUser\My
+          Write-Host "Imported certificate: $($cert.Subject) (thumbprint: $($cert.Thumbprint))"
+          echo "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
       - name: Sign .pqx with MakePQX
         shell: pwsh
         run: |
           $sizeBefore = (Get-Item GizmoSQL.pqx).Length
-          # MakePQX sign takes: <pqx file> --certificate <pfx path> [--password <pwd>]
-          # Key Vault PFX exports have no password
           & "$env:MAKEPQX_DIR\MakePQX.exe" sign GizmoSQL.pqx --certificate "$env:RUNNER_TEMP\cert.pfx"
           if ($LASTEXITCODE -ne 0) { throw "MakePQX sign failed with exit code $LASTEXITCODE" }
           $sizeAfter = (Get-Item GizmoSQL.pqx).Length
@@ -236,6 +240,9 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item "$env:RUNNER_TEMP\cert.pfx" -ErrorAction SilentlyContinue
+          if ($env:CERT_THUMBPRINT) {
+            Remove-Item "Cert:\CurrentUser\My\$env:CERT_THUMBPRINT" -ErrorAction SilentlyContinue
+          }
 
       - name: Upload signed .pqx artifact
         uses: actions/upload-artifact@v4
