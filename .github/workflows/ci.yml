@@ -198,7 +198,8 @@ jobs:
           $vaultUrl = "${{ secrets.AZURE_KEY_VAULT_URI }}"
 
           # Download the certificate as PFX (includes private key)
-          $pfxBase64 = az keyvault secret show --vault-name ($vaultUrl -replace 'https://|/', '') --name $certName --query value -o tsv
+          # Use --id with full URL to avoid vault name parsing issues
+          $pfxBase64 = az keyvault secret show --id "$vaultUrl/secrets/$certName" --query value -o tsv
           $pfxBytes = [Convert]::FromBase64String($pfxBase64)
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
 
