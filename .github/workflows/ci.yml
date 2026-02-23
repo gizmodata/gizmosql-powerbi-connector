@@ -191,23 +191,59 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           allow-no-subscriptions: true
 
-      - name: Download certificate from Azure Key Vault
+      - name: Download and import signing certificate
         shell: pwsh
         run: |
           $certName = "${{ secrets.AZURE_CERT_NAME }}"
           $vaultUrl = "${{ secrets.AZURE_KEY_VAULT_URI }}"
 
-          # Download the certificate as PFX (includes private key)
-          # Use --id with full URL to avoid vault name parsing issues
-          $pfxBase64 = az keyvault secret show --id "$vaultUrl/secrets/$certName" --query value -o tsv
-          $pfxBytes = [Convert]::FromBase64String($pfxBase64)
-          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
-          Write-Host "Downloaded certificate PFX ($($pfxBytes.Length) bytes)"
+          # Check content type to determine format (pkcs12 vs pem)
+          $contentType = az keyvault secret show --id "$vaultUrl/secrets/$certName" --query contentType -o tsv
+          Write-Host "Certificate content type: $contentType"
 
-          # Import into cert store — MakePQX uses .NET PackageDigitalSignatureManager
-          # which looks up the private key through the Windows cert store
-          $cert = Import-PfxCertificate -FilePath "$env:RUNNER_TEMP\cert.pfx" -CertStoreLocation Cert:\CurrentUser\My
-          Write-Host "Imported certificate: $($cert.Subject) (thumbprint: $($cert.Thumbprint))"
+          # Download the secret (contains private key + cert)
+          $secretValue = az keyvault secret show --id "$vaultUrl/secrets/$certName" --query value -o tsv
+
+          if ($contentType -eq "application/x-pem-file") {
+            # PEM format — convert to PFX for MakePQX
+            Write-Host "Converting PEM to PFX..."
+            $pemPath = "$env:RUNNER_TEMP\cert.pem"
+            Set-Content -Path $pemPath -Value $secretValue
+            $emptyPwd = [System.Security.SecureString]::new()
+            $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+              $pemPath, $emptyPwd,
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::Exportable -bor
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet
+            )
+            $pfxBytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Pfx)
+            [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
+            Remove-Item $pemPath -ErrorAction SilentlyContinue
+          } else {
+            # PKCS#12 (PFX) format — decode base64
+            $pfxBytes = [Convert]::FromBase64String($secretValue)
+            [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", $pfxBytes)
+          }
+          Write-Host "Certificate PFX: $($pfxBytes.Length) bytes"
+
+          # Import into cert store with PersistKeySet — MakePQX uses .NET
+          # PackageDigitalSignatureManager which looks up private keys via the store
+          $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::PersistKeySet -bor
+                   [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::UserKeySet
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            "$env:RUNNER_TEMP\cert.pfx", $null, $flags
+          )
+          $store = [System.Security.Cryptography.X509Certificates.X509Store]::new(
+            "My", [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser
+          )
+          $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+          $store.Add($cert)
+          $store.Close()
+
+          Write-Host "Imported certificate: $($cert.Subject)"
+          Write-Host "Thumbprint: $($cert.Thumbprint)"
+          Write-Host "Has private key: $($cert.HasPrivateKey)"
+          if (-not $cert.HasPrivateKey) { throw "Certificate has no private key — cannot sign" }
           echo "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
 
       - name: Sign .pqx with MakePQX
