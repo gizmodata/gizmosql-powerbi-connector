@@ -81,7 +81,7 @@ GizmoSQL = [
         let
             json = Json.Document(dataSourcePath)
         in
-            { "GizmoSQL.Contents", json[server], json[port] },
+            { "GizmoSQL.Contents", json[server], json[port], json[useEncryption]?, json[disableCertificateVerification]? },
     Authentication = [
         UsernamePassword = [],
         Key = [],
