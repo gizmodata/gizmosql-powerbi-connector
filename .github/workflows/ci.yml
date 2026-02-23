@@ -234,7 +234,7 @@ jobs:
           for ($i = 1; $i -le 30; $i++) {
               try {
                   $tcp = New-Object Net.Sockets.TcpClient
-                  $tcp.Connect("127.0.0.1", 31337)
+                  $tcp.Connect("localhost", 31337)
                   $tcp.Close()
                   Write-Host "GizmoSQL server is ready"
                   exit 0
@@ -266,8 +266,11 @@ jobs:
       - name: Run PQTest
         shell: pwsh
         run: |
+          # Show run-test help for debugging
+          & $env:PQTEST run-test --help
+
           Write-Host "Running PQTest..."
-          $output = & $env:PQTEST run-test -e GizmoSQL.mez -q tests -pa tests\GizmoSQL.parameterquery.pq -p
+          $output = & $env:PQTEST run-test -e GizmoSQL.mez -q tests -p
           Write-Host "Raw output:"
           Write-Host $output
 
