@@ -254,10 +254,159 @@ int main() {
         SQLCloseCursor(hStmt);
     }
 
+    /* Test parameterized queries (SQLPrepare + SQLBindParameter + SQLExecute).
+     * This exercises the exact code path Power BI DirectQuery uses.
+     * Before the SQL_C_LONG fix, this would fail with:
+     *   "Cannot convert C type 4 to Arrow int64" */
+
+    /* Test: LIMIT ? with integer parameter */
+    printf("\n=== Parameterized: SELECT * FROM test_data LIMIT ? ===\n");
+    SQLCloseCursor(hStmt);
+    ret = SQLPrepareA(hStmt, (SQLCHAR*)"SELECT * FROM test_data LIMIT ?", SQL_NTS);
+    check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLPrepare(LIMIT ?)");
+    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        SQLINTEGER limitVal = 2;
+        ret = SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_LONG,
+                               SQL_INTEGER, 0, 0, &limitVal, 0, NULL);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLBindParameter(LIMIT)");
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            fprintf(stderr, "FAIL: SQLBindParameter for LIMIT failed\n");
+            return 1;
+        }
+
+        ret = SQLExecute(hStmt);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLExecute(LIMIT ?)");
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            fprintf(stderr, "FAIL: Parameterized LIMIT query failed\n");
+            return 1;
+        }
+
+        int rowCount = 0;
+        while (SQLFetch(hStmt) == SQL_SUCCESS) rowCount++;
+        printf("  Rows returned: %d (expected 2)\n", rowCount);
+        if (rowCount != 2) {
+            fprintf(stderr, "FAIL: Expected 2 rows, got %d\n", rowCount);
+            return 1;
+        }
+        SQLCloseCursor(hStmt);
+    }
+
+    /* Test: WHERE with string parameter */
+    printf("\n=== Parameterized: SELECT * FROM test_data WHERE name = ? ===\n");
+    SQLFreeStmt(hStmt, SQL_RESET_PARAMS);
+    ret = SQLPrepareA(hStmt, (SQLCHAR*)"SELECT * FROM test_data WHERE name = ?", SQL_NTS);
+    check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLPrepare(WHERE name=?)");
+    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        SQLCHAR nameVal[] = "bob";
+        SQLLEN nameLen = SQL_NTS;
+        ret = SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_CHAR,
+                               SQL_VARCHAR, 50, 0, nameVal, sizeof(nameVal), &nameLen);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLBindParameter(name)");
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            fprintf(stderr, "FAIL: SQLBindParameter for name failed\n");
+            return 1;
+        }
+
+        ret = SQLExecute(hStmt);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLExecute(WHERE name=?)");
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            fprintf(stderr, "FAIL: Parameterized WHERE name query failed\n");
+            return 1;
+        }
+
+        int rowCount = 0;
+        SQLCHAR resultName[128];
+        SQLLEN ind;
+        while (SQLFetch(hStmt) == SQL_SUCCESS) {
+            rowCount++;
+            SQLGetData(hStmt, 2, SQL_C_CHAR, resultName, sizeof(resultName), &ind);
+            printf("  Row %d: name=%s\n", rowCount, resultName);
+        }
+        printf("  Rows returned: %d (expected 1)\n", rowCount);
+        if (rowCount != 1) {
+            fprintf(stderr, "FAIL: Expected 1 row, got %d\n", rowCount);
+            return 1;
+        }
+        SQLCloseCursor(hStmt);
+    }
+
+    /* Test: WHERE with integer parameter */
+    printf("\n=== Parameterized: SELECT * FROM test_data WHERE id = ? ===\n");
+    SQLFreeStmt(hStmt, SQL_RESET_PARAMS);
+    ret = SQLPrepareA(hStmt, (SQLCHAR*)"SELECT * FROM test_data WHERE id = ?", SQL_NTS);
+    check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLPrepare(WHERE id=?)");
+    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        SQLINTEGER idVal = 3;
+        ret = SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_LONG,
+                               SQL_INTEGER, 0, 0, &idVal, 0, NULL);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLBindParameter(id)");
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            fprintf(stderr, "FAIL: SQLBindParameter for id failed\n");
+            return 1;
+        }
+
+        ret = SQLExecute(hStmt);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLExecute(WHERE id=?)");
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            fprintf(stderr, "FAIL: Parameterized WHERE id query failed\n");
+            return 1;
+        }
+
+        int rowCount = 0;
+        SQLINTEGER resultId;
+        SQLLEN ind;
+        while (SQLFetch(hStmt) == SQL_SUCCESS) {
+            rowCount++;
+            SQLGetData(hStmt, 1, SQL_C_LONG, &resultId, 0, &ind);
+            printf("  Row %d: id=%d\n", rowCount, resultId);
+        }
+        printf("  Rows returned: %d (expected 1)\n", rowCount);
+        if (rowCount != 1) {
+            fprintf(stderr, "FAIL: Expected 1 row, got %d\n", rowCount);
+            return 1;
+        }
+        SQLCloseCursor(hStmt);
+    }
+
+    /* Test: Multiple parameters */
+    printf("\n=== Parameterized: SELECT * FROM test_data WHERE id = ? AND name = ? ===\n");
+    SQLFreeStmt(hStmt, SQL_RESET_PARAMS);
+    ret = SQLPrepareA(hStmt, (SQLCHAR*)"SELECT * FROM test_data WHERE id = ? AND name = ?", SQL_NTS);
+    check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLPrepare(WHERE id=? AND name=?)");
+    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        SQLINTEGER idVal = 1;
+        SQLCHAR nameVal[] = "alice";
+        SQLLEN nameLen = SQL_NTS;
+        ret = SQLBindParameter(hStmt, 1, SQL_PARAM_INPUT, SQL_C_LONG,
+                               SQL_INTEGER, 0, 0, &idVal, 0, NULL);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLBindParameter(id)");
+        ret = SQLBindParameter(hStmt, 2, SQL_PARAM_INPUT, SQL_C_CHAR,
+                               SQL_VARCHAR, 50, 0, nameVal, sizeof(nameVal), &nameLen);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLBindParameter(name)");
+
+        ret = SQLExecute(hStmt);
+        check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLExecute(WHERE id=? AND name=?)");
+        if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+            fprintf(stderr, "FAIL: Multi-parameter query failed\n");
+            return 1;
+        }
+
+        int rowCount = 0;
+        while (SQLFetch(hStmt) == SQL_SUCCESS) rowCount++;
+        printf("  Rows returned: %d (expected 1)\n", rowCount);
+        if (rowCount != 1) {
+            fprintf(stderr, "FAIL: Expected 1 row, got %d\n", rowCount);
+            return 1;
+        }
+        SQLCloseCursor(hStmt);
+    }
+
+    printf("\nAll tests passed!\n");
+
     SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
     SQLDisconnect(hDbc);
     SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
     SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
-    printf("\nDone.\n");
+    printf("Done.\n");
     return 0;
 }
