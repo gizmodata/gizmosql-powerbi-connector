@@ -24,7 +24,8 @@ ODBC = Extension.LoadFunction("OdbcConstants.pqm");
 Config_DriverName = "GizmoSQL ODBC Driver";
 Config_SqlConformance = ODBC[SQL_SC][SQL_SC_SQL92_FULL];
 Config_LimitClauseKind = LimitClauseKind.LimitOffset;
-Config_UseParameterBindings = true;
+// Parameter bindings are auto-detected via SQLGetFunctions(SQL_API_SQLBINDPARAMETER) probe.
+// Odbc.DataSource does not accept UseParameterBindings as an option directly.
 Config_StringLiteralEscapeCharacters = { "'" };
 Config_UseCastInsteadOfConvert = true;
 Config_EnableDirectQuery = true;
@@ -79,7 +80,6 @@ shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, op
             TolerateConcatOverflow = true,
             ClientConnectionPooling = true,
             CredentialConnectionString = CredentialConnectionString,
-            UseParameterBindings = Config_UseParameterBindings,
             SqlCapabilities = [
                 SupportsTop = false,
                 SupportsDerivedTable = true,
