@@ -156,6 +156,89 @@ int main() {
     test_sqltables_w(hStmt, "WIDE: Wildcard % for table",
                      NULL, 0, NULL, 0, L"%", SQL_NTS, NULL, 0);
 
+    /* Test SQLColumnsW - this is what Power Query calls to discover columns */
+    printf("\n=== WIDE: SQLColumnsW for test_data ===\n");
+    ret = SQLColumnsW(hStmt, NULL, 0, NULL, 0, L"test_data", SQL_NTS, NULL, 0);
+    check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLColumnsW(test_data)");
+    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        SQLSMALLINT numCols;
+        SQLNumResultCols(hStmt, &numCols);
+        printf("  Result columns: %d\n", numCols);
+        int colRowCount = 0;
+        while (1) {
+            ret = SQLFetch(hStmt);
+            if (ret == SQL_NO_DATA) break;
+            if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+                check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLFetch(SQLColumnsW)");
+                break;
+            }
+            colRowCount++;
+            SQLCHAR cat[128], sch[128], tbl[128], col[128], typeName[128];
+            SQLSMALLINT dataType;
+            SQLLEN ind_cat, ind_sch, ind_tbl, ind_col, ind_dt, ind_tn;
+            SQLGetData(hStmt, 1, SQL_C_CHAR, cat, sizeof(cat), &ind_cat);
+            SQLGetData(hStmt, 2, SQL_C_CHAR, sch, sizeof(sch), &ind_sch);
+            SQLGetData(hStmt, 3, SQL_C_CHAR, tbl, sizeof(tbl), &ind_tbl);
+            SQLGetData(hStmt, 4, SQL_C_CHAR, col, sizeof(col), &ind_col);
+            SQLGetData(hStmt, 5, SQL_C_SSHORT, &dataType, 0, &ind_dt);
+            SQLGetData(hStmt, 6, SQL_C_CHAR, typeName, sizeof(typeName), &ind_tn);
+            printf("  cat=%s sch=%s tbl=%s col=%s type=%d(%s)\n",
+                   ind_cat == SQL_NULL_DATA ? "NULL" : (char*)cat,
+                   ind_sch == SQL_NULL_DATA ? "NULL" : (char*)sch,
+                   ind_tbl == SQL_NULL_DATA ? "NULL" : (char*)tbl,
+                   ind_col == SQL_NULL_DATA ? "NULL" : (char*)col,
+                   ind_dt == SQL_NULL_DATA ? 0 : dataType,
+                   ind_tn == SQL_NULL_DATA ? "NULL" : (char*)typeName);
+        }
+        printf("  Total columns: %d\n", colRowCount);
+        if (colRowCount == 0) {
+            fprintf(stderr, "FAIL: SQLColumnsW returned 0 columns for test_data\n");
+            SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+            SQLDisconnect(hDbc);
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+            SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+            return 1;
+        }
+        SQLCloseCursor(hStmt);
+    }
+
+    /* Test SQLColumnsW with catalog and schema specified */
+    printf("\n=== WIDE: SQLColumnsW with catalog=memory, schema=main ===\n");
+    ret = SQLColumnsW(hStmt, L"memory", SQL_NTS, L"main", SQL_NTS, L"test_data", SQL_NTS, NULL, 0);
+    check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLColumnsW(memory.main.test_data)");
+    if (ret == SQL_SUCCESS || ret == SQL_SUCCESS_WITH_INFO) {
+        int colRowCount = 0;
+        while (1) {
+            ret = SQLFetch(hStmt);
+            if (ret == SQL_NO_DATA) break;
+            if (ret != SQL_SUCCESS && ret != SQL_SUCCESS_WITH_INFO) {
+                check_error(ret, SQL_HANDLE_STMT, hStmt, "SQLFetch(SQLColumnsW qualified)");
+                break;
+            }
+            colRowCount++;
+            SQLCHAR col[128], typeName[128];
+            SQLSMALLINT dataType;
+            SQLLEN ind_col, ind_dt, ind_tn;
+            SQLGetData(hStmt, 4, SQL_C_CHAR, col, sizeof(col), &ind_col);
+            SQLGetData(hStmt, 5, SQL_C_SSHORT, &dataType, 0, &ind_dt);
+            SQLGetData(hStmt, 6, SQL_C_CHAR, typeName, sizeof(typeName), &ind_tn);
+            printf("  col=%s type=%d(%s)\n",
+                   ind_col == SQL_NULL_DATA ? "NULL" : (char*)col,
+                   ind_dt == SQL_NULL_DATA ? 0 : dataType,
+                   ind_tn == SQL_NULL_DATA ? "NULL" : (char*)typeName);
+        }
+        printf("  Total columns (qualified): %d\n", colRowCount);
+        if (colRowCount == 0) {
+            fprintf(stderr, "FAIL: SQLColumnsW with catalog/schema returned 0 columns\n");
+            SQLFreeHandle(SQL_HANDLE_STMT, hStmt);
+            SQLDisconnect(hDbc);
+            SQLFreeHandle(SQL_HANDLE_DBC, hDbc);
+            SQLFreeHandle(SQL_HANDLE_ENV, hEnv);
+            return 1;
+        }
+        SQLCloseCursor(hStmt);
+    }
+
     /* Also test a basic SQL query to confirm connection works */
     printf("\n=== Direct SQL test ===\n");
     ret = SQLExecDirectA(hStmt, (SQLCHAR*)"SELECT 42 AS answer", SQL_NTS);
