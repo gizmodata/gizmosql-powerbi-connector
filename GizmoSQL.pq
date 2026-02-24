@@ -87,12 +87,7 @@ shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, op
                 GroupByCapabilities = 4,
                 FractionalSecondsScale = 3,
                 LimitClauseKind = Config_LimitClauseKind,
-                StringLiteralEscapeCharacters = Config_StringLiteralEscapeCharacters,
-                SupportsNumericLiterals = true,
-                SupportsStringLiterals = true,
-                SupportsOdbcDateLiterals = true,
-                SupportsOdbcTimeLiterals = true,
-                SupportsOdbcTimestampLiterals = true
+                StringLiteralEscapeCharacters = Config_StringLiteralEscapeCharacters
             ],
             SQLGetInfo = [
                 SQL_SQL_CONFORMANCE = Config_SqlConformance,
