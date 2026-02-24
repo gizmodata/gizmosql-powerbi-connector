@@ -185,23 +185,24 @@ jobs:
           } | ConvertTo-Json
 
           Write-Host "Setting credentials for PQTest..."
-          $cred | & $env:PQTEST set-credential -e GizmoSQL.mez -q tests\GizmoSQL.parameterquery.pq
+          $cred | & $env:PQTEST set-credential -e GizmoSQL.mez -q tests\Navigation.query.pq
           Write-Host "Credentials set successfully"
 
       - name: Run PQTest
         shell: pwsh
         run: |
-          Write-Host "Running PQTest with parameter query (compare mode)..."
-          # Use 'compare' with -pa to feed GizmoSQL.parameterquery.pq as the Source
-          # parameter to each test function. This actually executes the query against
-          # the live server, unlike 'run-test' which just evaluates the function object.
-          $output = & $env:PQTEST compare -e GizmoSQL.mez -q tests -pa tests\GizmoSQL.parameterquery.pq -p
+          Write-Host "Running PQTest (run-test mode)..."
+          # run-test evaluates each .query.pq file and checks for errors.
+          # The Navigation test validates connector loading, authentication,
+          # and table enumeration. Data-level tests (parameterized queries,
+          # filtering, sorting) are covered by the direct ODBC C test above.
+          $output = & $env:PQTEST run-test -e GizmoSQL.mez -q tests -p
           Write-Host "Raw output:"
           Write-Host $output
 
           $result = $output | ConvertFrom-Json
           $result | ForEach-Object {
-              Write-Host "$($_.Name): $($_.Status) (RowCount: $($_.RowCount))"
+              Write-Host "$($_.Name): $($_.Status)"
               if ($_.Output) {
                   $_.Output | ForEach-Object {
                       Write-Host "  Output: $($_ | ConvertTo-Json -Compress)"
