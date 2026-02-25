@@ -98,7 +98,68 @@ shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, op
                 SQL_SQL_CONFORMANCE = Config_SqlConformance,
                 SQL_CONVERT_FUNCTIONS = ODBC[SQL_FN_CVT][SQL_FN_CVT_CAST],
                 SQL_SQL92_PREDICATES = ODBC[SQL_SP][All],
-                SQL_AGGREGATE_FUNCTIONS = ODBC[SQL_AF][All]
+                SQL_AGGREGATE_FUNCTIONS = ODBC[SQL_AF][All],
+
+                // Date/time scalar functions — DuckDB supports all standard date/time functions.
+                // The Flight SQL driver only reports a subset; override to enable full folding.
+                SQL_TIMEDATE_FUNCTIONS = ODBC[Flags]({
+                    ODBC[SQL_FN_TD][SQL_FN_TD_NOW],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_CURDATE],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_DAYOFMONTH],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_DAYOFWEEK],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_DAYOFYEAR],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_MONTH],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_QUARTER],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_WEEK],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_YEAR],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_CURTIME],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_HOUR],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_MINUTE],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_SECOND],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_DAYNAME],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_MONTHNAME],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_CURRENT_DATE],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_CURRENT_TIME],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_CURRENT_TIMESTAMP],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_EXTRACT],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_TIMESTAMPADD],
+                    ODBC[SQL_FN_TD][SQL_FN_TD_TIMESTAMPDIFF]
+                }),
+
+                // SQL-92 datetime functions (CURRENT_DATE, CURRENT_TIME, CURRENT_TIMESTAMP)
+                SQL_SQL92_DATETIME_FUNCTIONS = ODBC[Flags]({
+                    ODBC[SQL_SDF][SQL_SDF_CURRENT_DATE],
+                    ODBC[SQL_SDF][SQL_SDF_CURRENT_TIME],
+                    ODBC[SQL_SDF][SQL_SDF_CURRENT_TIMESTAMP]
+                }),
+
+                // SQL-92 numeric value functions (EXTRACT, CHAR_LENGTH, etc.)
+                SQL_SQL92_NUMERIC_VALUE_FUNCTIONS = ODBC[Flags]({
+                    ODBC[SQL_SNVF][SQL_SNVF_EXTRACT],
+                    ODBC[SQL_SNVF][SQL_SNVF_CHAR_LENGTH],
+                    ODBC[SQL_SNVF][SQL_SNVF_CHARACTER_LENGTH],
+                    ODBC[SQL_SNVF][SQL_SNVF_OCTET_LENGTH],
+                    ODBC[SQL_SNVF][SQL_SNVF_POSITION]
+                }),
+
+                // SQL-92 string functions
+                SQL_SQL92_STRING_FUNCTIONS = ODBC[Flags]({
+                    ODBC[SQL_SSF][SQL_SSF_CONVERT],
+                    ODBC[SQL_SSF][SQL_SSF_LOWER],
+                    ODBC[SQL_SSF][SQL_SSF_UPPER],
+                    ODBC[SQL_SSF][SQL_SSF_SUBSTRING],
+                    ODBC[SQL_SSF][SQL_SSF_TRIM_BOTH],
+                    ODBC[SQL_SSF][SQL_SSF_TRIM_LEADING],
+                    ODBC[SQL_SSF][SQL_SSF_TRIM_TRAILING]
+                }),
+
+                // SQL-92 value expressions (CASE, CAST, COALESCE, NULLIF)
+                SQL_SQL92_VALUE_EXPRESSIONS = ODBC[Flags]({
+                    ODBC[SQL_SVE][SQL_SVE_CASE],
+                    ODBC[SQL_SVE][SQL_SVE_CAST],
+                    ODBC[SQL_SVE][SQL_SVE_COALESCE],
+                    ODBC[SQL_SVE][SQL_SVE_NULLIF]
+                })
             ],
             HideNativeQuery = true
         ])
