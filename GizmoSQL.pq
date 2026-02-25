@@ -159,6 +159,16 @@ shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, op
                     ODBC[SQL_SVE][SQL_SVE_CAST],
                     ODBC[SQL_SVE][SQL_SVE_COALESCE],
                     ODBC[SQL_SVE][SQL_SVE_NULLIF]
+                }),
+
+                // SQL-92 relational join operators — DuckDB supports all standard joins.
+                SQL_SQL92_RELATIONAL_JOIN_OPERATORS = ODBC[Flags]({
+                    ODBC[SQL_SRJO][SQL_SRJO_CROSS_JOIN],
+                    ODBC[SQL_SRJO][SQL_SRJO_INNER_JOIN],
+                    ODBC[SQL_SRJO][SQL_SRJO_LEFT_OUTER_JOIN],
+                    ODBC[SQL_SRJO][SQL_SRJO_RIGHT_OUTER_JOIN],
+                    ODBC[SQL_SRJO][SQL_SRJO_FULL_OUTER_JOIN],
+                    ODBC[SQL_SRJO][SQL_SRJO_NATURAL_JOIN]
                 })
             ],
             HideNativeQuery = true

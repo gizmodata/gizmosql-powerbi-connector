@@ -191,33 +191,67 @@ jobs:
       - name: Run PQTest
         shell: pwsh
         run: |
-          Write-Host "Running PQTest (run-test mode)..."
-          # run-test evaluates each .query.pq file and checks for errors.
-          # The Navigation test validates connector loading, authentication,
-          # and table enumeration. Data-level tests (parameterized queries,
-          # filtering, sorting) are covered by the direct ODBC C test above.
           $output = & $env:PQTEST run-test -e GizmoSQL.mez -q tests -p
-          Write-Host "Raw output:"
-          Write-Host $output
+          $results = $output | ConvertFrom-Json
 
-          $result = $output | ConvertFrom-Json
-          $result | ForEach-Object {
-              Write-Host "$($_.Name): $($_.Status)"
-              if ($_.Output) {
-                  $_.Output | ForEach-Object {
-                      Write-Host "  Output: $($_ | ConvertTo-Json -Compress)"
+          $passed = 0
+          $failed = 0
+          $totalMs = 0
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "  PQTest Results"
+          Write-Host "=========================================="
+          Write-Host ""
+
+          foreach ($r in $results) {
+              $name = $r.Name -replace '\.query\.pq$', ''
+              $start = [DateTime]::Parse($r.StartTime)
+              $end = [DateTime]::Parse($r.EndTime)
+              $durationMs = [int]($end - $start).TotalMilliseconds
+              $totalMs += $durationMs
+
+              if ($r.Status -eq "Passed") {
+                  $icon = [char]0x2713  # checkmark
+                  $passed++
+              } else {
+                  $icon = "X"
+                  $failed++
+              }
+
+              $rowInfo = ""
+              if ($null -ne $r.RowCount) { $rowInfo = " ($($r.RowCount) rows)" }
+              Write-Host "  $icon $name ... $($r.Status)${rowInfo} [${durationMs}ms]"
+
+              # Show output summary for passed tests
+              if ($r.Status -eq "Passed" -and $r.Output -and $r.Output.Count -gt 0) {
+                  foreach ($row in $r.Output) {
+                      $fields = ($row.PSObject.Properties | Where-Object {
+                          $_.Name -notin @('Kind')
+                      } | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ", "
+                      if ($fields) { Write-Host "      $fields" }
+                  }
+              }
+
+              # Show error details for failed tests
+              if ($r.Status -ne "Passed") {
+                  if ($r.Error) { Write-Host "      Error: $($r.Error)" }
+                  if ($r.DiagnosticEvents -and $r.DiagnosticEvents.PSObject.Properties.Count -gt 0) {
+                      Write-Host "      Diagnostics: $($r.DiagnosticEvents | ConvertTo-Json -Compress)"
                   }
               }
           }
 
-          $failed = @($result | Where-Object { $_.Status -ne "Passed" })
-          if ($failed.Count -gt 0) {
-              $failed | ForEach-Object {
-                  Write-Error "FAIL: $($_.Name) - $($_.Status) - $($_.Error)"
-              }
+          Write-Host ""
+          Write-Host "------------------------------------------"
+          Write-Host "  $passed passed, $failed failed ($($results.Count) total) [${totalMs}ms]"
+          Write-Host "=========================================="
+          Write-Host ""
+
+          if ($failed -gt 0) {
+              Write-Error "$failed test(s) failed"
               exit 1
           }
-          Write-Host "All PQTest tests passed!"
 
       - name: Stop GizmoSQL server
         if: always()
