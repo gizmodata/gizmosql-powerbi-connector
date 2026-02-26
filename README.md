@@ -10,36 +10,33 @@ A Power Query custom connector (`.pqx`) that wraps the [GizmoSQL ODBC driver](ht
 - **Authentication** — username/password or token-based auth
 - **Signed connector** — `.pqx` is code-signed for integrity verification
 
-## Prerequisites
-
-1. **GizmoSQL ODBC Driver** — install from [gizmosql-odbc-driver releases](https://github.com/gizmodata/gizmosql-odbc-driver/releases)
-2. **Power BI Desktop** — [download](https://powerbi.microsoft.com/desktop/)
-
 ## Installation
 
-### Signed `.pqx` (recommended)
+### MSI Installer (recommended)
 
-1. Download `GizmoSQL.pqx` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
-2. Copy to `[Documents]\Power BI Desktop\Custom Connectors\`
-   - Create the folder if it doesn't exist
-3. In Power BI Desktop, go to **File > Options > Security > Data Extensions** and select **(Not Recommended) Allow any extension to load without validation or warning**
+1. Download `GizmoSQL-PowerBI-Setup-x64.msi` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
+2. Run the installer — it installs the ODBC driver, the signed connector, and registers the signing certificate as trusted with Power BI
+3. Restart Power BI Desktop
+4. The connector appears under **Get Data > Database > GizmoSQL**
+
+No security setting changes required — the installer works with Power BI's default "Recommended" security level.
+
+### Signed `.pqx` (manual)
+
+1. Install the [GizmoSQL ODBC Driver](https://github.com/gizmodata/gizmosql-odbc-driver/releases)
+2. Download `GizmoSQL.pqx` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
+3. Copy to `[Documents]\Power BI Desktop\Custom Connectors\` (create the folder if it doesn't exist)
 4. Restart Power BI Desktop
-5. The connector appears under **Get Data > Database > GizmoSQL**
 
-> **Note:** The connector is code-signed but not Microsoft-certified. Power BI's default "Recommended" security setting only allows Microsoft-certified connectors and will show this warning:
->
-> ![Uncertified Connectors warning](images/uncertified-connectors-warning.png)
->
-> To resolve this, select **(Not Recommended) Allow any extension to load without validation or warning** under **File > Options > Security > Data Extensions**:
->
-> ![Data Extensions security setting](images/security-data-extensions-setting.png)
+> **Note:** When installing the `.pqx` manually (without the MSI), Power BI may show a security warning because the signing certificate is not registered as trusted. To resolve this, either use the MSI installer above, or change **File > Options > Security > Data Extensions** to **(Not Recommended) Allow any extension to load without validation or warning**.
 
-### Unsigned `.mez` (development)
+### Unsigned `.mez` (development only)
 
-1. Download `GizmoSQL.mez` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
-2. Copy to `[Documents]\Power BI Desktop\Custom Connectors\`
-3. In Power BI Desktop, go to **File > Options > Security > Data Extensions** and select **(Not Recommended) Allow any extension to load without validation or warning**
-4. Restart Power BI Desktop
+1. Install the [GizmoSQL ODBC Driver](https://github.com/gizmodata/gizmosql-odbc-driver/releases)
+2. Download `GizmoSQL.mez` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
+3. Copy to `[Documents]\Power BI Desktop\Custom Connectors\`
+4. In Power BI Desktop, go to **File > Options > Security > Data Extensions** and select **(Not Recommended) Allow any extension to load without validation or warning**
+5. Restart Power BI Desktop
 
 ## Connecting
 
