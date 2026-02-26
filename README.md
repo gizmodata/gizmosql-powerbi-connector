@@ -8,7 +8,7 @@ A Power Query custom connector (`.pqx`) that wraps the [GizmoSQL ODBC driver](ht
 - **Hierarchical navigation** — browse databases > schemas > tables in the Navigator pane
 - **Query folding** — Power BI pushes filters, joins, and aggregations down as SQL (`LIMIT`/`OFFSET`, `CAST`, SQL-92)
 - **Authentication** — username/password or token-based auth
-- **Signed connector** — `.pqx` loads under Power BI's default "Recommended" security setting
+- **Signed connector** — `.pqx` is code-signed for integrity verification
 
 ## Prerequisites
 
@@ -22,16 +22,23 @@ A Power Query custom connector (`.pqx`) that wraps the [GizmoSQL ODBC driver](ht
 1. Download `GizmoSQL.pqx` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
 2. Copy to `[Documents]\Power BI Desktop\Custom Connectors\`
    - Create the folder if it doesn't exist
-3. Restart Power BI Desktop
-4. The connector appears under **Get Data > Database > GizmoSQL**
+3. In Power BI Desktop, go to **File > Options > Security > Data Extensions** and select **(Not Recommended) Allow any extension to load without validation or warning**
+4. Restart Power BI Desktop
+5. The connector appears under **Get Data > Database > GizmoSQL**
 
-> The signed `.pqx` works with Power BI's default **Recommended** extension security setting (File > Options > Security > Data Extensions).
+> **Note:** The connector is code-signed but not Microsoft-certified. Power BI's default "Recommended" security setting only allows Microsoft-certified connectors and will show this warning:
+>
+> ![Uncertified Connectors warning](images/uncertified-connectors-warning.png)
+>
+> To resolve this, select **(Not Recommended) Allow any extension to load without validation or warning** under **File > Options > Security > Data Extensions**:
+>
+> ![Data Extensions security setting](images/security-data-extensions-setting.png)
 
 ### Unsigned `.mez` (development)
 
 1. Download `GizmoSQL.mez` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
 2. Copy to `[Documents]\Power BI Desktop\Custom Connectors\`
-3. In Power BI Desktop, go to **File > Options > Security > Data Extensions** and select **Allow any extension to load without validation or warning**
+3. In Power BI Desktop, go to **File > Options > Security > Data Extensions** and select **(Not Recommended) Allow any extension to load without validation or warning**
 4. Restart Power BI Desktop
 
 ## Connecting
