@@ -2,7 +2,7 @@
 // from the test_data table (INTEGER, VARCHAR, DOUBLE).
 let
     Source = GizmoSQL.Contents("localhost", 31337, false, false),
-    TestData = Source{[Item="test_data", Schema="main", Catalog="memory"]}[Data],
+    TestData = Source{[Name="memory"]}[Data]{[Name="main"]}[Data]{[Name="test_data"]}[Data],
     FirstRow = Table.First(TestData)
 in
     TestData
