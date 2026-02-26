@@ -51,19 +51,28 @@ GizmoSQL.ContentsType = type function (
         Documentation.FieldCaption = "Disable Certificate Verification",
         Documentation.FieldDescription = "Skip TLS certificate verification (not recommended for production)",
         Documentation.AllowedValues = {true, false}
+    ]),
+    optional defaultCatalog as (type text meta [
+        Documentation.FieldCaption = "Default Catalog",
+        Documentation.FieldDescription = "Database/catalog to use (leave blank to use the server default)",
+        Documentation.SampleValues = {"my_database"}
     ])
 ) as table;
 
 [DataSource.Kind = "GizmoSQL", Publish = "GizmoSQL.Publish"]
-shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical) as table =>
+shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical, optional defaultCatalog as text) as table =>
     let
-        ConnectionString = [
+        BaseConnectionString = [
             Driver = Config_DriverName,
             host = server,
             port = Number.ToText(port),
             useEncryption = if useEncryption <> false then "true" else "false",
             disableCertificateVerification = if disableCertificateVerification = true then "true" else "false"
         ],
+        ConnectionString = if defaultCatalog <> null and defaultCatalog <> "" then
+            Record.AddField(BaseConnectionString, "defaultCatalog", defaultCatalog)
+        else
+            BaseConnectionString,
         Credential = Extension.CurrentCredential(),
         CredentialConnectionString =
             if Credential[AuthenticationKind]? = "UsernamePassword" then
@@ -75,7 +84,7 @@ shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, op
             else
                 error Error.Record("Error", "Unsupported authentication kind"),
         OdbcDataSource = Odbc.DataSource(ConnectionString, [
-            HierarchicalNavigation = false,
+            HierarchicalNavigation = true,
             SoftNumbers = true,
             TolerateConcatOverflow = true,
             ClientConnectionPooling = true,
@@ -182,7 +191,7 @@ GizmoSQL = [
         let
             json = Json.Document(dataSourcePath)
         in
-            { "GizmoSQL.Contents", json[server], json[port], json[useEncryption]?, json[disableCertificateVerification]? },
+            { "GizmoSQL.Contents", json[server], json[port], json[useEncryption]?, json[disableCertificateVerification]?, json[defaultCatalog]? },
     Authentication = [
         UsernamePassword = [],
         Key = [],
