@@ -23,6 +23,7 @@
       <ComponentGroupRef Id="DriverComponents" />
       <ComponentGroupRef Id="RegistryComponents" />
       <ComponentGroupRef Id="ConnectorComponents" />
+      <ComponentGroupRef Id="PowerBITrustComponents" />
     </Feature>
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
@@ -77,6 +78,18 @@
           <RegistryValue Name="Driver" Type="string" Value="[INSTALLFOLDER]gizmosql-odbc.dll" />
           <RegistryValue Name="Setup" Type="string" Value="[INSTALLFOLDER]gizmosql-odbc.dll" />
           <RegistryValue Name="UsageCount" Type="integer" Value="1" />
+        </RegistryKey>
+      </Component>
+    </ComponentGroup>
+
+    <!-- Power BI trusted connector registry — allows signed .pqx to load
+         at the default "Recommended" security level without user intervention.
+         See: https://learn.microsoft.com/en-us/power-bi/connect-data/desktop-trusted-third-party-connectors -->
+    <ComponentGroup Id="PowerBITrustComponents" Directory="INSTALLFOLDER">
+      <Component Id="PowerBITrustedThumbprint" Guid="1A2B3C4D-5E6F-7890-AB12-CD34EF567890">
+        <RegistryKey Root="HKLM" Key="SOFTWARE\Policies\Microsoft\Power BI Desktop">
+          <RegistryValue Name="TrustedCertificateThumbprints" Type="multiString"
+                         Value="$(var.CertThumbprint)" />
         </RegistryKey>
       </Component>
     </ComponentGroup>

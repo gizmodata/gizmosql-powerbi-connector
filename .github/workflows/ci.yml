@@ -273,6 +273,8 @@ jobs:
     runs-on: windows-2022
     name: Sign Connector
     environment: production
+    outputs:
+      cert-thumbprint: ${{ steps.sign.outputs.thumbprint }}
     permissions:
       id-token: write
       contents: read
@@ -292,11 +294,17 @@ jobs:
           allow-no-subscriptions: true
 
       - name: Sign .pqx via Azure Key Vault
+        id: sign
+        shell: pwsh
         run: |
-          dotnet run --project installer/sign-pqx -- `
+          $output = dotnet run --project installer/sign-pqx -- `
             "${{ secrets.AZURE_KEY_VAULT_URI }}" `
             "${{ secrets.AZURE_CERT_NAME }}" `
             GizmoSQL.pqx
+          Write-Host $output
+          $thumbprint = ($output | Select-String "Thumbprint:\s+(\S+)").Matches[0].Groups[1].Value
+          Write-Host "Extracted thumbprint: $thumbprint"
+          echo "thumbprint=$thumbprint" >> $env:GITHUB_OUTPUT
 
       - name: Upload signed .pqx artifact
         uses: actions/upload-artifact@v4
@@ -393,6 +401,7 @@ jobs:
           wix build `
             "${{ github.workspace }}\installer\GizmoSqlBundle.wxs" `
             -arch x64 `
+            -d CertThumbprint="${{ needs.sign-connector.outputs.cert-thumbprint }}" `
             -b BinDir="${{ github.workspace }}\installer\bin" `
             -b ConnectorDir="${{ github.workspace }}\installer\connector" `
             -b "${{ github.workspace }}\installer" `
