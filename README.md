@@ -7,7 +7,7 @@ A Power Query custom connector (`.pqx`) that wraps the [GizmoSQL ODBC driver](ht
 - **DirectQuery support** — live queries against GizmoSQL without data import
 - **Hierarchical navigation** — browse databases > schemas > tables in the Navigator pane
 - **Query folding** — Power BI pushes filters, joins, and aggregations down as SQL (`LIMIT`/`OFFSET`, `CAST`, SQL-92)
-- **Authentication** — username/password or token-based auth
+- **Authentication** — username/password, token-based, or OAuth (browser) auth
 - **Signed connector** — `.pqx` is code-signed for integrity verification
 
 ## Installation
@@ -48,6 +48,7 @@ No security setting changes required — the installer works with Power BI's def
 4. Choose an authentication method:
    - **Username/Password**: enter your GizmoSQL credentials
    - **Key**: enter a bearer token
+   - **OAuth (Browser)**: authenticate via your identity provider in a browser window
 5. Click **Connect** and browse the Navigator tree
 
 ## Authentication Methods
@@ -56,6 +57,7 @@ No security setting changes required — the installer works with Power BI's def
 |--------|----------------|----------|
 | Username/Password | `UID`, `PWD`, `authType=basic` | Standard database credentials |
 | Key (Token) | `token`, `authType=token` | Bearer token / JWT authentication |
+| OAuth (Browser) | `authType=external` | SSO via identity provider (opens browser for login) |
 
 ## DirectQuery
 
