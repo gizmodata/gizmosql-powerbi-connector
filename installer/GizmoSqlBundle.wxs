@@ -3,7 +3,7 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="GizmoSQL Power BI Connector"
            Manufacturer="GizmoData LLC"
-           Version="!(bind.fileVersion.GizmoSqlOdbcDll)"
+           Version="$(var.ProductVersion)"
            UpgradeCode="F7A8B9C0-D1E2-3456-7890-ABCDEF123456"
            Scope="perMachine">
 

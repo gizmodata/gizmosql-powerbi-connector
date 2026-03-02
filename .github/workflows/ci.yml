@@ -104,7 +104,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release download v1.1.0 --repo gizmodata/gizmosql-odbc-driver `
+          gh release download v1.1.2 --repo gizmodata/gizmosql-odbc-driver `
             --pattern "gizmosql-odbc-windows-x64.dll" `
             --dir driver
 
@@ -337,7 +337,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v1.1.0 --repo gizmodata/gizmosql-odbc-driver `
+          gh release download v1.1.2 --repo gizmodata/gizmosql-odbc-driver `
             --pattern "gizmosql-odbc-windows-x64.dll" `
             --dir installer\bin
           Rename-Item installer\bin\gizmosql-odbc-windows-x64.dll gizmosql-odbc.dll
@@ -400,9 +400,12 @@ jobs:
 
       - name: Build MSI
         run: |
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if (-not $version) { $version = "0.0.0" }
           wix build `
             "${{ github.workspace }}\installer\GizmoSqlBundle.wxs" `
             -arch x64 `
+            -d ProductVersion="$version" `
             -d CertThumbprint="${{ needs.sign-connector.outputs.cert-thumbprint }}" `
             -b BinDir="${{ github.workspace }}\installer\bin" `
             -b ConnectorDir="${{ github.workspace }}\installer\connector" `

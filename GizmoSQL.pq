@@ -1,4 +1,4 @@
-[Version = "1.1.1"]
+[Version = "1.1.2"]
 section GizmoSQL;
 
 // Diagnostics module for trace logging (disable for release builds)

@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [v1.1.2] - 2026-03-02
+
+### Changed
+- Pin GizmoSQL ODBC driver to v1.1.2 (adds auto-commit support)
+
 ## [v1.1.1] - 2026-03-02
 
 ### Fixed
