@@ -105,6 +105,7 @@ jobs:
         shell: pwsh
         run: |
           gh release download --repo gizmodata/gizmosql-odbc-driver `
+            --tag v1.1.0 `
             --pattern "gizmosql-odbc-windows-x64.dll" `
             --dir driver
 
@@ -338,6 +339,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release download --repo gizmodata/gizmosql-odbc-driver `
+            --tag v1.1.0 `
             --pattern "gizmosql-odbc-windows-x64.dll" `
             --dir installer\bin
           Rename-Item installer\bin\gizmosql-odbc-windows-x64.dll gizmosql-odbc.dll

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [v1.1.1] - 2026-03-02
+
 ### Fixed
 - Document the OAuth (Browser) authentication method in README, which was supported since v1.0.0 but missing from the docs.
 
@@ -13,6 +15,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Enable hierarchical navigation (`HierarchicalNavigation = true`) so the Navigator pane shows a drill-down tree of catalog > schema > table instead of a flat list.
+- Pin GizmoSQL ODBC driver to v1.1.0 in CI and MSI installer builds instead of using latest release.
 
 ## [v1.1.0] - 2026-02-25
 
