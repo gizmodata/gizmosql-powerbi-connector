@@ -1,0 +1,926 @@
+let 
+
+    TypeInfo = Extension.LoadExpression("TypeInfo.pqm"),
+    AddUnsignedAttribute = Table.AddColumn(TypeInfo,"UnsignedAttribute",each if [Unsigned] = true then 1 else 0),
+    SelectTypeInfoColumns = Table.SelectColumns(AddUnsignedAttribute,{"Name","Type","ColumnSize","GetLiteral","Searchable","UnsignedAttribute","NumberPrecisionRadix"}),
+    SqlGetTypeInfo = Table.RenameColumns(SelectTypeInfoColumns,{{"Name","SqlTypeName"},{"NumberPrecisionRadix","NumericPrecisionRadix"}}),
+
+    // Supported conversions by the SQL generator, including conversions to less precise or smaller types
+    SupportedConversions = #table({"FromSqlTypeName","ToSqlTypeNames"},
+        {
+            {"BOOLEAN", {"VARCHAR", "DECIMAL", "BIGINT", "INTEGER", "SMALLINT", "REAL", "DOUBLE"}},
+            {"SMALLINT", {"SMALLINT", "INTEGER", "BIGINT", "REAL", "DOUBLE", "DECIMAL", "VARCHAR"}},
+            {"INTEGER", {"INTEGER", "BIGINT", "SMALLINT", "REAL", "DOUBLE", "DECIMAL", "VARCHAR"}},
+            {"BIGINT", {"BIGINT", "INTEGER", "SMALLINT", "REAL", "DOUBLE", "DECIMAL", "VARCHAR"}},
+            {"REAL", {"REAL", "INTEGER", "BIGINT", "SMALLINT", "DOUBLE", "DECIMAL", "VARCHAR"}},
+            {"DOUBLE", {"DOUBLE", "REAL", "INTEGER", "BIGINT", "SMALLINT", "DECIMAL", "VARCHAR"}},
+            {"DECIMAL", {"DECIMAL", "DOUBLE", "REAL", "BIGINT", "INTEGER", "VARCHAR"}},
+            {"DATE", {"DATE", "TIMESTAMP", "VARCHAR"}},
+            {"TIME", {"TIME", "VARCHAR"}},
+            {"TIMESTAMP", {"TIMESTAMP", "DATE", "TIME", "VARCHAR"}},
+            {"VARCHAR", {"VARCHAR", "DECIMAL", "BIGINT", "INTEGER", "SMALLINT", "REAL", "DOUBLE", "DATE", "TIME", "TIMESTAMP"}}
+        }
+    ),
+
+    SqlTypesCategories = [
+        // These are used internally by MashupEngine when useSoftNumbers is true. It is a list of SqlTypeNames which follow a certain order based on
+        // Odbc Sql Type Code
+        // For SoftBase2Types it is {DOUBLE,FLOAT,REAL,DECIMAL,NUMERIC,BIGINT,INTEGER}
+        // For SoftBase10Types it is {DECIMAL,NUMERIC,DOUBLE,FLOAT,REAL,DECIMAL,BIGINT,INTEGER}
+        SoftBase2Types = {"DOUBLE", "REAL", "DECIMAL", "BIGINT", "INTEGER"},
+        SoftBase10Types = {"DECIMAL", "DOUBLE", "REAL", "BIGINT", "INTEGER"},
+        // This is a list of different types of SQL type categories, arranged in ascending order of size.
+        // When the TolerateConcatOverflow SQL capability is set to true, it uses the following lists (based on SqlTypeName) to fit the result of operations into
+        // the largest compatible type in the event of overflow scenarios caused by various operations on SQL types.
+        VarBinaryTypes = {}, 
+        WideCharTypes = {"VARCHAR"},
+        VarCharTypes = {"VARCHAR"},
+        WideVarCharTypes = {"VARCHAR"}
+    ],
+
+    DefaultTypes = #table({"Type","SqlTypeName"},
+        {
+            {Logical.Type, "BOOLEAN"},
+            {Int16.Type, "SMALLINT"},
+            {Int32.Type, "INTEGER"},
+            {Int64.Type, "BIGINT"},
+            {Single.Type, "REAL"},
+            {Double.Type, "DOUBLE"},
+            {Decimal.Type, "DECIMAL"},
+            {Date.Type, "DATE"},
+            {Time.Type, "TIME"},
+            {DateTime.Type, "TIMESTAMP"},
+            {Text.Type, "VARCHAR"}
+        }
+    ),
+
+    // Create Override Record and use Merge Overrides to merge it
+    Override = [
+         SqlGetTypeInfo = SqlGetTypeInfo,
+         SqlCapabilities = [
+            LimitClauseKind = LimitClauseKind.LimitOffset
+         ],
+         FunctionOverrides = AdbcFunctionOverrides,
+         BinaryOperatorOverrides = [],
+         UnaryOperatorOverrides = [],
+         DefaultTypes = DefaultTypes,
+         SupportedConversions = SupportedConversions,
+         SqlTypesCategories = SqlTypesCategories
+     ],
+
+    SqlGenerator = SqlGeneratorHelpers[MergeOverrides]("Sql92",Override,false),
+    currentAstVisitorRecord = SqlGenerator[AstVisitor],
+
+    addToAstVisitor = [
+        AstVisitor = currentAstVisitorRecord & [
+        ]
+    ],
+
+// Extension library functions
+    Extension.LoadExpression = (name as text) =>
+        let
+            binary = Extension.Contents(name),
+            asText = Text.FromBinary(binary)
+        in
+            Expression.Evaluate(asText, #shared),
+    SqlGeneratorHelpers = Extension.LoadExpression("SqlGeneratorCommon.pqm"),
+
+// This is third part of SqlGenerator and has all the function overrides along with helpers.
+    AdbcHelpers = SqlGeneratorHelpers[Helpers],
+    AdbcConstants =  SqlGeneratorHelpers[Constants],
+    funcName = SqlGeneratorHelpers[FunctionNames],
+//  Adbc Helpers to create basic Sql Ast
+    SingleListElement = AdbcHelpers[SingleListElement],
+    InExpression = AdbcHelpers[InExpression],
+    GetInvocation = AdbcHelpers[GetInvocation],
+    ApproxDistinctCount = AdbcHelpers[ApproxDistinctCount],
+    WhenItem = AdbcHelpers[WhenItem],
+    CaseFunction = AdbcHelpers[CaseFunction],
+    ConditionOperation = AdbcHelpers[ConditionOperation],
+    UnaryLogicalOperation = AdbcHelpers[UnaryLogicalOperation],
+    BinaryLogicalOperation = AdbcHelpers[BinaryLogicalOperation],
+    Argument = AdbcHelpers[Argument],
+    Function = AdbcHelpers[Function],
+    Literal = AdbcHelpers[Literal],
+    BinaryOperation = AdbcHelpers[BinaryOperation],
+    Invocation = AdbcHelpers[Invocation],
+    InvocationWithType = AdbcHelpers[InvocationWithType],
+    InArrayExpression = AdbcHelpers[InArrayExpression],
+    SqlConstant = AdbcHelpers[SqlConstant],
+    CastSqlExpression = AdbcHelpers[CastSqlExpression],
+//  Sql Ast Constants
+    minute = AdbcConstants[minute],
+    second = AdbcConstants[second],
+    hour = AdbcConstants[hour],
+    nanosecond = AdbcConstants[nanosecond],
+    minusone = AdbcConstants[minusone],
+    one = AdbcConstants[one],
+    zero = AdbcConstants[zero],
+    tickspersecond = AdbcConstants[tickspersecond],
+    nanosecondspersecond = AdbcConstants[nanosecondspersecond],
+    ticksperhour = AdbcConstants[ticksperhour],
+    ticksperminute = AdbcConstants[ticksperminute],
+    startOfYearDateTime = AdbcConstants[startOfYearDateTime],
+    ticksperday = AdbcConstants[ticksperday],
+    date1899wotime = SqlConstant("AnsiString","1899-12-30",type text),
+    date18991230 = SqlConstant("AnsiString","1899-12-30 00:00:00.0000000",type text),
+
+//AdbcHelpers using NativeTypes
+    CreateArguments = (args) => List.Transform(args,each Argument(_,integerTypeWithFacets)),
+    IntFromHelper = (ast,visitor) =>
+        let
+            sqlastarg1 = visitor(ast[Arguments]{0}),
+            result = 
+                if((Type.Is(sqlastarg1[Type],type text)) or (Type.Is(sqlastarg1[Type],type nullable text)) or (Type.Is(sqlastarg1[Type],type logical))
+                    or (Type.Is(sqlastarg1[Type],type nullable logical))) then 
+                        CastSqlExpression(sqlastarg1, integerTypeWithFacets)
+                else 
+                if((Type.Is(sqlastarg1[Type],type date)) or (Type.Is(sqlastarg1[Type],type nullable date))) then
+                    let
+                        startdate =  SqlConstant("AnsiString","1899-12-30",type text),
+                        casteddate = CastSqlExpression(startdate, datetypewithFacets),
+                        day = Literal("day")
+                     in
+                        Invocation(CreateArguments({day,casteddate,sqlastarg1}),"timestampdiff")
+                else ...
+         in
+            result,
+    GetArgumentForListCount = (ast as record,visitor as function,isCountNull as logical) =>
+        let
+            argument = ast[Arguments]{0},
+            sqlastarg = visitor(argument)
+         in
+            if (argument[Kind] = "FieldAccess") 
+            then
+                if isCountNull = true
+                then 
+                    [
+                        CountNull = false,
+                        ColumnAst = null,
+                        ArgumentAst = {Argument(one,null)}
+                    ]
+                else 
+                    [
+                        CountNull = false,
+                        ColumnAst = sqlastarg,
+                        ArgumentAst = {Argument(sqlastarg,null)}
+                    ]
+            else if argument[Kind] = "Invocation" then
+                let
+                    invocation = argument
+                 in
+                    if (invocation[Function][Value] = List.Distinct) and GetListCount(invocation[Arguments]) = 1
+                    then 
+                        let 
+                            argumentForInvocation = @GetArgumentForListCount(invocation, visitor, false)
+                        in 
+                            [
+                                CountNull = true,
+                                ColumnAst = argumentForInvocation[ColumnAst],
+                                ArgumentAst = {Argument(InvocationWithType(argumentForInvocation[ArgumentAst],"DISTINCT",integerTypeWithFacets),null)}
+                            ]
+                    else if (invocation[Function][Value] = List.Select) and GetListCount(invocation[Arguments]) = 2
+                        and ValidateExpression(invocation[Arguments]{1}[Value])
+                    then [
+                            CountNull = false,
+                            ColumnAst = null,
+                            ArgumentAst = @GetArgumentForListCount(invocation,visitor,false)[ArgumentAst]
+                        ]
+                    else if (invocation[Function][Value]  = ItemExpression.Item[Function][Value])
+                    then [
+                            CountNull = false,
+                            ColumnAst = null,
+                            ArgumentAst = {Argument(one,null)}
+                        ]
+                    else ...
+            else ...,
+
+    ValidateExpression = (expr) =>
+        let
+            rowexpr= RowExpression.From(each _ <> null)
+         in
+            if(rowexpr[Kind] = "Binary") then
+                if(rowexpr[Operator] = "NotEquals")
+                    then if((rowexpr[Left][Kind] = "Invocation") and (GetListCount(rowexpr[Left][Arguments]) = 0)
+                        and rowexpr[Right][Kind] = "Constant" and rowexpr[Right][Value] = null)
+                        or ((rowexpr[Right][Kind] = "Invocation") and (GetListCount(rowexpr[Right][Arguments]) = 0)
+                        and rowexpr[Left][Kind] = "Constant" and rowexpr[Left][Value] = null)
+                    then true
+                    else false
+                else false
+            else false,
+
+// This is helper function which is used in dates override function. Please see below for usage
+
+    GetListCount = (listvalue) => if listvalue = null then 0 else List.Count(listvalue),   
+    GetListContains = (listvalue,value) => List.Contains(listvalue,value),
+    DateStartOfHelper = (args,visitor,datetimepart) =>                                                       
+        let 
+            sqlexprList = List.Transform(args, (c) => visitor(c)),                    
+            totimestamp = Invocation({Argument(startOfYearDateTime,textTypeWithFacets)},"TO_TIMESTAMP"),
+            sqlconstant = Literal(datetimepart),
+            arguments = CreateArguments({sqlconstant,totimestamp,sqlexprList{0}}),
+            timestampdiff = Invocation(arguments,"timestampdiff"),
+            timestampaddarguments = CreateArguments({sqlconstant,timestampdiff,totimestamp}),
+            timestampadd = Invocation(timestampaddarguments,"timestampadd")
+         in
+            timestampadd,
+    DateEndOfHelper = (args,visitor,datetimepart,dayorsec) =>
+        let
+            sqlexprList = List.Transform(args, (c) => visitor(c)),
+            totimestamp = Invocation({Argument(startOfYearDateTime,textTypeWithFacets)},"TO_TIMESTAMP"),
+            datetimeconstant = Literal(datetimepart),
+            dayorsecconstant = Literal(dayorsec),
+            arguments = CreateArguments({datetimeconstant,totimestamp,sqlexprList{0}}),
+            timestampdiff = Invocation(arguments,"timestampdiff"),
+            timestampdiffplusone = BinaryOperation(timestampdiff,"Add",one),
+            timestampaddarguments = CreateArguments({datetimeconstant,timestampdiffplusone,totimestamp}),
+            timestampadd = Invocation(timestampaddarguments,"timestampadd"),
+            secondtimestampaddarguments = CreateArguments({dayorsecconstant,minusone,timestampadd}),
+            secondtimestampadd = Invocation(secondtimestampaddarguments,"timestampadd")
+         in
+            secondtimestampadd,
+    DateAddHelper = (args,visitor,datetimepart) =>
+        let
+            sqlexprList = List.Transform(args, (c) => visitor(c)),
+            constant = Literal(datetimepart),
+            arguments = CreateArguments({constant,sqlexprList{1},sqlexprList{0}}),
+            timestampadd = Invocation(arguments,"timestampadd")
+         in
+            timestampadd,
+
+    MinMaxHelper = (foldedArg,functionName) =>
+        if Type.Is(foldedArg[Type], type nullable number) or
+            Type.Is(foldedArg[Type], type nullable date) or
+            Type.Is(foldedArg[Type], type nullable datetime) or
+            Type.Is(foldedArg[Type], type nullable text)
+        then Invocation({Argument(foldedArg, null)}, functionName)
+        else ...,
+
+    ValueFunctionsArgumentsVisitor  = (value, precision) =>
+        let
+            floatingPoint = {"DOUBLE", "FLOAT", "REAL"}
+        in
+            if Type.Is(value[Type], type number) or Type.Is(value[Type], type nullable number)
+            then
+                if (List.Contains(floatingPoint,Type.Facets(value[Type])[NativeTypeName]))
+                then
+                    if (precision = Precision.Double)
+                    then value
+                    else CastSqlExpression(value, decimalTypeWithFacets)
+                else if (precision = Precision.Decimal) then value
+                else CastSqlExpression(value, doubleTypeWithFacets)
+            else ...,
+
+    ValueFunctions = (visitor, ast, operation) =>
+        if GetListCount(ast[Arguments]) = 2 or GetListCount(ast[Arguments]) = 3
+        then
+            let
+                value1 = visitor(ast[Arguments]{0}),
+                value2 = visitor(ast[Arguments]{1}),
+                value3 = if GetListCount(ast[Arguments]) = 3 then ast[Arguments]{2}[Value] else Precision.Double,
+                firstArg = ValueFunctionsArgumentsVisitor(value1, value3),
+                secondArg = ValueFunctionsArgumentsVisitor(value2, value3)
+            in
+                BinaryOperation(firstArg,operation,secondArg)
+        else ...,
+
+    ValueAsAndReplaceType = (visitor, ast) =>
+        if GetListCount(ast[Arguments]) = 2 then
+            let
+                arg1 = visitor(ast[Arguments]{0}),
+                arg2 = ast[Arguments]{1}[Value]
+            in
+                if (Type.Is(arg2,type any))  or (Type.Is(arg1[Type],arg2) and Type.IsNullable(arg2))
+                then arg1
+                else ...
+        else ...,
+    
+    ConvertToDoubleFromDateTime = (datetimeAst, visitor) =>
+        let 
+            day = Literal("day"),
+            cast1899date = Argument(CastSqlExpression(date1899wotime, datetypewithFacets),null),
+            arg3 = Argument(datetimeAst,null),
+            minusoneAsInteger = CastSqlExpression(minusone, integerTypeWithFacets),
+            oneAsInteger = CastSqlExpression(one, integerTypeWithFacets),
+            whencondition = BinaryLogicalOperation("LessThan",datetimeAst,InvocationWithType({Argument(date18991230,doubleTypeWithFacets)},"TO_TIMESTAMP",datetimeTypeWithFacets)),
+            whenItem =WhenItem(whencondition,minusoneAsInteger,Number.Type),
+            case = CaseFunction({whenItem},oneAsInteger,null,Number.Type),
+            nanosecondticksperday = Literal("86400000000000"),
+            ticksperdayAsDouble = CastSqlExpression(nanosecondticksperday, doubleTypeWithFacets),
+            diff1 = InvocationWithType({Argument(day,null),cast1899date,arg3}, "timestampdiff", decimalTypeWithFacets),
+            adddatewithdiff1 = InvocationWithType({Argument(day,null),Argument(diff1,null),cast1899date}, "timestampadd", datetimeTypeWithFacets),
+            diff3 = InvocationWithType({Argument(nanosecond,null),Argument(adddatewithdiff1,null),arg3}, "timestampdiff", decimalTypeWithFacets),
+            castdiff3 = CastSqlExpression(diff3, doubleTypeWithFacets),
+            castdiff1 = CastSqlExpression(diff1, doubleTypeWithFacets),
+            divide = BinaryOperation(castdiff3, "Divide", ticksperdayAsDouble),
+            multiply = CastSqlExpression(BinaryOperation(divide, "Multiply", case),doubleTypeWithFacets),
+            result  = CastSqlExpression(BinaryOperation(diff1, "Add", multiply),doubleTypeWithFacets)
+        in 
+            result, 
+
+    DurationHelper = (visitor, ast, ticks) =>
+        if GetListCount(ast[Arguments]) = 1 then
+            let
+                sqlastarg = visitor(ast[Arguments]{0}),
+                sqlastargasdouble = CastSqlExpression(sqlastarg,doubleTypeWithFacets),
+                ticksasdouble = CastSqlExpression(ticks,doubleTypeWithFacets),
+                total = BinaryOperation(sqlastargasdouble,"Divide",ticksasdouble),
+                result = if Type.Is(sqlastarg[Type], type nullable duration) then total
+                    else ...
+             in
+                result
+        else ...,
+    
+    ListCountHelper = (visitor, ast) =>
+        let
+            foldedArg = visitor(ast[Arguments]{0}),
+            arg = GetArgumentForListCount(ast,visitor,true),
+            withCount = InvocationWithType(arg[ArgumentAst], "Count",integerTypeWithFacets)
+        in 
+            withCount,
+
+//NativeTypesWithFacets ---This is specific to data connector
+    textTypeWithFacets = Type.ReplaceFacets(Text.Type, [NativeTypeName = "VARCHAR"]),
+    doubleTypeWithFacets = Type.ReplaceFacets(Double.Type, [NativeTypeName = "DOUBLE"]),
+    decimalTypeWithFacets = Type.ReplaceFacets(Decimal.Type, [NativeTypeName = "DECIMAL"]),
+    decimalTypeWithPrecision = Type.ReplaceFacets(Decimal.Type, [NativeTypeName = "DECIMAL", NumericPrecisionBase = 10, NumericPrecision = 38, NumericScale = 6]),
+    integerTypeWithFacets = Type.ReplaceFacets(Number.Type, [NativeTypeName = "INTEGER"]),
+    datetypewithFacets = Type.ReplaceFacets(Date.Type, [NativeTypeName = "DATE"]),
+    datetimeTypeWithFacets = Type.ReplaceFacets(DateTime.Type, [NativeTypeName = "TIMESTAMP"]),
+    timeTypeWithFacets = Type.ReplaceFacets(Time.Type, [NativeTypeName = "TIME"]),
+    
+//Adbc Functions Overrides
+
+    AdbcFunctionOverrides = [
+    //   Below are the complex function override implementation of some of the functions. All the complex overrides gets same input arguments
+    //   which can be used as helper to create Sql Ast equivalent for the Function that is being overridden
+    //   Input Arguments :
+    //        visitor :            This is a helper function which takes any M Query expression and returns its equivalent Sql Ast.
+    //                             This is used where details of the M query expression is not known (like arguments for the function) but it needs to be converted to Sql Ast.
+    //        rowType :            This provides rowtype record for the arguments of Invocation
+    //        groupKeys :          This is for future use as of now.
+    //        ast       :          This is M query expression that needs to be converted to Sql Expression
+    // Note : All the types assigned to Sql Ast needs to have correct Facets information added to it to avoid any failures.
+    // Note : SQLEXPR(x) is SQL Ast that has been calculated using helper visitor in below examples
+    //----------------------------------------------------------------------------------------------------------------
+        Text.Middle = (visitor, rowType, groupKeys, ast) as record => 
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Text.Middle and  ( GetListCount(ast[Arguments]) = 2 or GetListCount(ast[Arguments]) = 3) then
+                let 
+                    args = ast[Arguments],
+                    sqlexprList = List.Transform(args, (c) => visitor(c)),
+                    arguments = List.Transform(sqlexprList,each Argument(_,_[Type])),
+                    result = if (GetListCount(sqlexprList) = 3)
+                        then if(args{2}[Kind] = "Constant" and Type.Is(Value.Type(args{2}[Value]),type number)) then InvocationWithType(arguments,"SUBSTRING",textTypeWithFacets)
+                            else
+                                let
+                                    LengthInvocation = Invocation({arguments{0}},funcName[Length]),
+                                    IfNullSecondArg = BinaryOperation(LengthInvocation,"Subtract",sqlexprList{1}),
+                                    IfNull = Invocation({arguments{2},Argument(IfNullSecondArg,integerTypeWithFacets)},"IfNull"),
+                                    result = Invocation({arguments{0},arguments{1},Argument(IfNull,integerTypeWithFacets)},"SUBSTRING")
+                                 in
+                                    result 
+                        else 
+                            let
+                                LengthInvocation = Invocation({arguments{0}},funcName[Length]),
+                                thirdArgument = BinaryOperation(LengthInvocation,"Subtract",sqlexprList{1}),
+                                allarguments = List.Combine({arguments,{Argument(thirdArgument,integerTypeWithFacets)}}),
+                                sqlastWithTwoArguments = Invocation(allarguments,"SUBSTRING")
+                             in
+                                sqlastWithTwoArguments
+                 in
+                    result
+             else ... ,
+
+        Text.From = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Text.From and  GetListCount(ast[Arguments]) = 1 then
+                let 
+                    sqlastarg = visitor(ast[Arguments]{0})
+                 in
+                   CastSqlExpression(sqlastarg, textTypeWithFacets)
+            else ...,
+        
+        Text.PositionOf = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Text.PositionOf and  GetListCount(ast[Arguments]) = 2 then
+                let
+                    one = Literal("1"),
+                    sqlargs = List.Transform(ast[Arguments], (c) => visitor(c)),
+                    arg1 = Argument(sqlargs{0},textTypeWithFacets),
+                    arg2 = Argument(sqlargs{1},textTypeWithFacets),
+                    arg3 = Argument(one,integerTypeWithFacets),
+                    PositionFunction = Invocation({arg2,arg1,arg3},"POSITION"),
+                    result = BinaryOperation(PositionFunction,"Subtract",one)
+                 in
+                    result
+              else ...,
+
+        Text.Contains = [Name = "CONTAINS",Type = Logical.Type],
+
+        Text.StartsWith = [Name = "STARTS_WITH",Type = Logical.Type],
+
+        Text.EndsWith = [Name = "ENDS_WITH",Type = Logical.Type],
+    
+        Date.StartOfYear = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.StartOfYear and  GetListCount(ast[Arguments]) = 1
+            then DateStartOfHelper(ast[Arguments],visitor,"year")
+            else ...  ,
+    
+        Date.StartOfQuarter = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.StartOfQuarter and  GetListCount(ast[Arguments]) = 1
+            then DateStartOfHelper(ast[Arguments],visitor,"quarter")
+            else ...  ,
+     
+        Date.StartOfMonth = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.StartOfMonth and  GetListCount(ast[Arguments]) = 1
+            then DateStartOfHelper(ast[Arguments],visitor,"month")
+            else ...  ,
+    
+        Date.StartOfDay = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.StartOfDay and  GetListCount(ast[Arguments]) = 1
+            then DateStartOfHelper(ast[Arguments],visitor,"day")
+            else ...  ,
+
+        Date.StartOfWeek = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.StartOfWeek and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg = visitor(ast[Arguments]{0}) 
+                 in 
+                    if(Type.Is(sqlastarg[Type],type nullable datetime)) then DateStartOfHelper(ast[Arguments],visitor,"week")
+                    else ...
+            else ...  ,
+
+        Date.EndOfYear = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.EndOfYear and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg = visitor(ast[Arguments]{0})
+                 in 
+                    if(Type.Is(sqlastarg[Type],type nullable date)) then DateEndOfHelper(ast[Arguments],visitor,"year","day")
+                    else if(Type.Is(sqlastarg[Type],type nullable datetime)) then DateEndOfHelper(ast[Arguments],visitor,"year","nanosecond")
+                    else ...
+            else ...  ,
+        Date.EndOfQuarter = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.EndOfQuarter and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg = visitor(ast[Arguments]{0})
+                 in
+                    if(Type.Is(sqlastarg[Type],type nullable date)) then DateEndOfHelper(ast[Arguments],visitor,"quarter","day")
+                    else if(Type.Is(sqlastarg[Type],type nullable datetime)) then DateEndOfHelper(ast[Arguments],visitor,"quarter","nanosecond")
+                    else ...
+            else ...  ,
+
+        Date.EndOfMonth = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.EndOfMonth and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg = visitor(ast[Arguments]{0})
+                 in 
+                    if(Type.Is(sqlastarg[Type],type nullable date)) then DateEndOfHelper(ast[Arguments],visitor,"month","day")
+                    else if(Type.Is(sqlastarg[Type],type nullable datetime)) then DateEndOfHelper(ast[Arguments],visitor,"month","nanosecond")
+                    else ...
+            else ...  ,
+
+        Date.EndOfWeek = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.EndOfWeek and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg = visitor(ast[Arguments]{0})
+                 in
+                    if(Type.Is(sqlastarg[Type],type nullable datetime)) then DateEndOfHelper(ast[Arguments],visitor,"week","nanosecond")
+                    else ...
+            else ...  ,
+
+        Date.EndOfDay = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.EndOfDay and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg = visitor(ast[Arguments]{0})
+                 in
+                    if(Type.Is(sqlastarg[Type],type nullable date)) then DateEndOfHelper(ast[Arguments],visitor,"day","day")
+                    else if(Type.Is(sqlastarg[Type],type nullable datetime)) then DateEndOfHelper(ast[Arguments],visitor,"day","nanosecond")
+                    else ...
+            else ...  ,
+
+        Date.AddYears = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.AddYears and  GetListCount(ast[Arguments]) = 2
+            then DateAddHelper(ast[Arguments],visitor,"year")
+            else ...  ,
+    
+        Date.AddQuarters = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.AddQuarters and  GetListCount(ast[Arguments]) = 2
+            then DateAddHelper(ast[Arguments],visitor,"quarter")
+            else ...  ,
+
+        Date.AddMonths = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.AddMonths and  GetListCount(ast[Arguments]) = 2
+            then DateAddHelper(ast[Arguments],visitor,"month")
+            else ...  ,
+
+        Date.AddWeeks = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.AddWeeks and  GetListCount(ast[Arguments]) = 2
+            then DateAddHelper(ast[Arguments],visitor,"week")
+            else ...  ,
+    
+        Date.AddDays = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Date.AddDays and  GetListCount(ast[Arguments]) = 2
+            then DateAddHelper(ast[Arguments],visitor,"day")
+            else ...  ,
+
+        Time.EndOfHour = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Time.EndOfHour and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlexprList = List.Transform(ast[Arguments], (c) => visitor(c)),
+                    totimestamp = Invocation({Argument(startOfYearDateTime,type text)},"TO_TIMESTAMP"),
+                    arguments = CreateArguments({hour,totimestamp,sqlexprList{0}}),
+                    timestampdiff = Invocation(arguments,"timestampdiff"),
+                    timestampdiffplusone = BinaryOperation(timestampdiff,"Add",one),
+                    timestampaddarguments = CreateArguments({hour,timestampdiffplusone,totimestamp}),
+                    timestampadd = Invocation(timestampaddarguments,"timestampadd"),
+                    secondtimestampaddargs = CreateArguments({nanosecond,minusone,timestampadd}),
+                    secondtimestampadd = Invocation(secondtimestampaddargs,"timestampadd")
+                 in
+                    secondtimestampadd
+            else ...,
+
+        Time.Second = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Time.Second and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlexprarg = visitor(ast[Arguments]{0}),
+                    time000000 = SqlConstant("AnsiString","00:00:00.0000000",type text),
+                    caststarttime = CastSqlExpression(time000000,timeTypeWithFacets),
+                    totimestamp = Invocation({Argument(startOfYearDateTime,type text)},"TO_TIMESTAMP"),
+                    castnumericnano = CastSqlExpression(nanosecondspersecond,doubleTypeWithFacets),
+                    result = if(Type.Is(sqlexprarg[Type],type nullable datetime)) then
+                        let
+                            timestampdiff = Invocation(CreateArguments({minute,totimestamp,sqlexprarg}),"timestampdiff"),
+                            timestampadd = Invocation(CreateArguments({minute,timestampdiff,totimestamp}),"timestampadd"),
+                            secondtimestampadd = Invocation(CreateArguments({nanosecond,timestampadd,sqlexprarg}),"timestampdiff")
+                         in
+                            BinaryOperation(CastSqlExpression(secondtimestampadd,doubleTypeWithFacets),"Divide",castnumericnano)
+                            else if(Type.Is(sqlexprarg[Type],type nullable time)) then
+                                let
+                                    timestampdiff = Invocation(CreateArguments({minute,caststarttime,sqlexprarg}),"timestampdiff"),
+                                    timestampadd = Invocation(CreateArguments({minute,timestampdiff,caststarttime}),"timestampadd"),
+                                    timestampdiff1 = Invocation(CreateArguments({nanosecond,timestampadd,sqlexprarg}),"timestampdiff")
+                                 in
+                                    BinaryOperation(CastSqlExpression(timestampdiff1,doubleTypeWithFacets),"Divide",castnumericnano)
+                            else ...
+                 in
+                    result
+              else ...,
+
+        Time.StartOfHour = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Time.StartOfHour and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlexprList = List.Transform(ast[Arguments], (c) => visitor(c)),
+                    totimestamp = Invocation({Argument(startOfYearDateTime,type text)},"TO_TIMESTAMP"),
+                    arguments = CreateArguments({hour,totimestamp,sqlexprList{0}}),
+                    timestampdiff = Invocation(arguments,"timestampdiff"),
+                    timestampaddarguments = CreateArguments({hour,timestampdiff,totimestamp}),
+                    timestampadd = Invocation(timestampaddarguments,"timestampadd")
+                 in
+                    timestampadd
+            else ...,
+
+        List.Contains = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = List.Contains and  GetListCount(ast[Arguments]) = 2 then
+                let
+                    arg1 = ast[Arguments]{0},
+                    result = if(arg1[Kind] = "Constant" and Type.Is(Value.Type(arg1[Value]),type list))
+                        then if(GetListCount(arg1[Value]) = 1) then SingleListElement(ast,visitor)
+                        else InExpression(ast[Arguments],visitor)
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Int32.From = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Int32.From and  GetListCount(ast[Arguments]) = 1
+            then IntFromHelper(ast,visitor)
+            else ...,
+
+        Int16.From = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Int16.From and  GetListCount(ast[Arguments]) = 1
+            then IntFromHelper(ast,visitor)
+            else ...,
+
+        Int8.From = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Int8.From and  GetListCount(ast[Arguments]) = 1
+            then IntFromHelper(ast,visitor)
+            else ...,
+
+        Int64.From = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Int64.From and  GetListCount(ast[Arguments]) = 1
+            then IntFromHelper(ast,visitor)
+            else ...,
+
+        Logical.From = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Logical.From and  GetListCount(ast[Arguments]) = 1 then 
+                let
+                    sqlastarg = visitor(ast[Arguments]{0}),
+                    truestring = SqlConstant("AnsiString","true",type text),
+                    onestring = SqlConstant("AnsiString","1",type text),
+                    falsestring = SqlConstant("AnsiString","false",type text),
+                    result = if(Type.Is(sqlastarg[Type],type nullable logical)) then sqlastarg
+                        else if(Type.Is(sqlastarg[Type],type nullable number)) then
+                            let
+                                whencondition = BinaryLogicalOperation("NotEqualTo",sqlastarg,CastSqlExpression(zero,integerTypeWithFacets)),
+                                whenItem =WhenItem(whencondition,one,Number.Type),
+                                case = CaseFunction({whenItem},zero,null,Number.Type)
+                             in
+                                BinaryLogicalOperation("Equals",case,one)
+                        else if(Type.Is(sqlastarg[Type],type nullable text)) then
+                            let
+                                whencondition = BinaryLogicalOperation("Equals",InvocationWithType({Argument(sqlastarg,sqlastarg[Type])},"TO_VARCHAR",textTypeWithFacets),onestring),
+                                whenItem = WhenItem(whencondition,Literal("true"),Text.Type),
+                                case = CaseFunction({whenItem},Literal("false"),null,Text.Type)
+                             in
+                                BinaryLogicalOperation("Equals",case,Literal("true"))
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Single.From = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    result = if(Type.Is(sqlastarg1[Type],type nullable text)) then CastSqlExpression(CastSqlExpression(sqlastarg1,doubleTypeWithFacets),doubleTypeWithFacets)
+                        else if(Type.Is(sqlastarg1[Type],type nullable number)) then CastSqlExpression(sqlastarg1,doubleTypeWithFacets)
+                        else if(Type.Is(sqlastarg1[Type],type nullable datetime)) then ConvertToDoubleFromDateTime(sqlastarg1,visitor)
+                        else if(Type.Is(sqlastarg1[Type],type nullable date))
+                        then
+                            CastSqlExpression(InvocationWithType(CreateArguments({Literal("day"),CastSqlExpression(date1899wotime,datetypewithFacets),CastSqlExpression(sqlastarg1,datetypewithFacets)}),"timestampdiff",datetypewithFacets),doubleTypeWithFacets)
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Decimal.From = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    floatingPoint = {"DOUBLE", "FLOAT", "REAL"},
+                    result = if(Type.Is(sqlastarg1[Type],type nullable text)) then CastSqlExpression(sqlastarg1,decimalTypeWithPrecision)
+                        else if(Type.Is(sqlastarg1[Type],type nullable number)) 
+                        then 
+                            if (GetListContains(floatingPoint,Type.Facets(sqlastarg1[Type])[NativeTypeName]))
+                            then CastSqlExpression(sqlastarg1,decimalTypeWithPrecision)
+                            else  sqlastarg1
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Double.From = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    floatingPoint = {"DOUBLE", "FLOAT", "REAL"},
+                    result = if(Type.Is(sqlastarg1[Type],type nullable text)) then CastSqlExpression(sqlastarg1,doubleTypeWithFacets)
+                        else if(Type.Is(sqlastarg1[Type],type nullable number)) 
+                        then 
+                            if (GetListContains(floatingPoint,Type.Facets(sqlastarg1[Type])[NativeTypeName]))
+                            then  sqlastarg1
+                            else  CastSqlExpression(sqlastarg1,doubleTypeWithFacets)
+                        else if(Type.Is(sqlastarg1[Type],type nullable datetime)) then ConvertToDoubleFromDateTime(sqlastarg1,visitor)
+                        else if(Type.Is(sqlastarg1[Type],type nullable date)) then
+                            CastSqlExpression(InvocationWithType(CreateArguments({Literal("day"),CastSqlExpression(date1899wotime,datetypewithFacets),CastSqlExpression(sqlastarg1,datetypewithFacets)}),"timestampdiff",datetypewithFacets),doubleTypeWithFacets)
+                        else ...
+                 in 
+                    result
+            else ...,
+
+        Date.From = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    result = if(Type.Is(sqlastarg1[Type],type nullable datetime)) then CastSqlExpression(sqlastarg1,datetypewithFacets)
+                        else if(Type.Is(sqlastarg1[Type],type nullable date)) then sqlastarg1
+                        else if(Type.Is(sqlastarg1[Type],type nullable number)) then
+                            InvocationWithType(CreateArguments({Literal("day"),CastSqlExpression(sqlastarg1,decimalTypeWithFacets),CastSqlExpression(date1899wotime,datetypewithFacets)}),"timestampadd",datetypewithFacets)
+                        else ...
+                 in
+                    result
+            else ...,
+    
+        DateTime.From = (visitor, rowType, groupKeys, ast) =>
+            if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = DateTime.From and  GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    abs = InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},funcName[ABS],doubleTypeWithFacets),
+                    floor = InvocationWithType({Argument(abs,doubleTypeWithFacets)},funcName[floor],doubleTypeWithFacets),
+                    time000000 = SqlConstant("AnsiString","00:00:00.0000000",type text),
+                    cast1 = CastSqlExpression(nanosecondspersecond,doubleTypeWithFacets),
+                    cast2 = CastSqlExpression(ticksperday,doubleTypeWithFacets),
+                    cast3 = CastSqlExpression(time000000,timeTypeWithFacets),
+                    ToTimeStamp = InvocationWithType({Argument(date18991230,doubleTypeWithFacets)},"TO_TIMESTAMP",datetimeTypeWithFacets),
+                    hourFunction = InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},funcName[hour],doubleTypeWithFacets),
+                    minuteFunction = InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},funcName[minute],doubleTypeWithFacets),
+                    firstcondition = BinaryLogicalOperation("LessThan",sqlastarg1,Literal("0")),
+                    secondcondition = BinaryLogicalOperation("NotEqualTo",BinaryOperation(abs,"Subtract",floor),Literal("0")),
+                    whencondition = ConditionOperation("and",firstcondition,secondcondition),
+                    whenItem = WhenItem(whencondition,one,doubleTypeWithFacets),
+                    case = CaseFunction({whenItem},one,null,doubleTypeWithFacets),
+                    timestamptype = type datetime,
+                    timestamptypewithFacets = Type.ReplaceFacets(timestamptype,[NativeTypeName = "TIMESTAMP"]),
+                    result = if(Type.Is(sqlastarg1[Type],type nullable date)) then CastSqlExpression(sqlastarg1,timestamptypewithFacets)
+                        else if(Type.Is(sqlastarg1[Type],type nullable datetime)) then sqlastarg1
+                        else if(Type.Is(sqlastarg1[Type],type nullable time)) then
+                            let
+                                timestampadd1 = InvocationWithType(CreateArguments({hour,hourFunction,ToTimeStamp}),"timestampadd",datetimeTypeWithFacets),
+                                timestampadd2 = InvocationWithType(CreateArguments({minute,minuteFunction,timestampadd1}),"timestampadd",datetimeTypeWithFacets),
+                                timestampdiff1 = InvocationWithType(CreateArguments({minute,cast1,sqlastarg1}),"timestampdiff",doubleTypeWithFacets),
+                                timestampadd3 = InvocationWithType(CreateArguments({minute,timestampdiff1,cast3}),"timestampadd",datetimeTypeWithFacets),
+                                timestampdiff2 = InvocationWithType(CreateArguments({nanosecond,timestampadd3,sqlastarg1}),"timestampdiff",doubleTypeWithFacets),
+                                casttimestampdiff = CastSqlExpression(timestampdiff2,doubleTypeWithFacets),
+                                dividebynano = BinaryOperation(casttimestampdiff,"Divide",cast1)
+                             in
+                                InvocationWithType(CreateArguments({second,dividebynano,timestampadd2}),"timestampadd",datetimeTypeWithFacets)
+                        else if(Type.Is(sqlastarg1[Type],type nullable number)) then
+                            let
+                                secondarg = BinaryOperation(BinaryOperation(BinaryOperation(abs,"Subtract",floor),"Add",case),"Multiply",cast2),
+                                thirdarg = InvocationWithType(List.Transform({Literal("day"),InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},"floor",doubleTypeWithFacets),ToTimeStamp},each Argument(_,doubleTypeWithFacets)),"timestampadd",datetimeTypeWithFacets)
+                             in
+                                InvocationWithType(CreateArguments({nanosecond,secondarg,thirdarg}),"timestampadd",datetimeTypeWithFacets)
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Table.ApproximateRowCount = (visitor, rowType, groupKeys, ast) as record =>
+            let
+                Function = (name) => [Kind = "Function", Name=name],
+                Argument = (expr) => [Expression = expr, Type = null],
+                ApproxDistinctCount = (list) => [
+                    Kind = "Invocation",
+                    Function = Function("approx_count_distinct"),
+                    Arguments = List.Transform(list, Argument), Type = Int64.Type
+                ],
+                GetInvocation = (ast, function, count) =>
+                    if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = function and GetListCount(ast[Arguments]) = count
+                    then ast[Arguments]
+                    else ...,
+                tarc = GetInvocation(ast, Table.ApproximateRowCount, 1),
+                td = GetInvocation(tarc{0}, Table.Distinct, 1),
+                sc = GetInvocation(td{0}, Table.SelectColumns, 2)
+             in
+                if groupKeys <> null and sc{0} = RowExpression.Row and sc{1}[Value]? is list then
+                ApproxDistinctCount(List.Transform(sc{1}[Value], (c) => visitor(RowExpression.Column(c))))
+                else ...,
+
+    // Aggregate functions
+        List.Sum = (visitor, rowType, groupKeys, ast) => 
+            if GetListCount(ast[Arguments]) = 1 or GetListCount(ast[Arguments]) = 2
+            then
+                let
+                    value1 = visitor(ast[Arguments]{0}),
+                    value2 = if GetListCount(ast[Arguments]) = 2 then ast[Arguments]{1}[Value] else Precision.Double,
+                    firstArg = ValueFunctionsArgumentsVisitor(value1, value2)
+                in
+                    InvocationWithType({Argument(firstArg, null)}, "SUM",firstArg[Type])
+            else ...,
+
+        List.Average = (visitor, rowType, groupKeys, ast) =>
+            let
+                foldedArg = visitor(ast[Arguments]{0})
+             in
+                if ast[Kind] = "Invocation" and
+                    ast[Function][Kind] = "Constant" and
+                    ast[Function][Value] = List.Average and
+                    GetListCount(ast[Arguments]) = 1 and
+                    groupKeys <> null and
+                    Type.Is(foldedArg[Type], type number)
+                then Invocation({Argument(foldedArg, null)}, "AVG")
+                else ...,
+
+        List.Max = (visitor, rowType, groupKeys, ast) =>
+            let
+                foldedArg = visitor(ast[Arguments]{0})
+             in
+                if GetListCount(ast[Arguments]) = 1 and groupKeys <> null
+                then MinMaxHelper(foldedArg,"MAX")
+                else ...,
+
+        List.Min = (visitor, rowType, groupKeys, ast) =>
+            let
+                foldedArg = visitor(ast[Arguments]{0})
+             in
+                if GetListCount(ast[Arguments]) = 1 and groupKeys <> null
+                then MinMaxHelper(foldedArg,"MIN")
+                else ...,
+
+        List.Count = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 and groupKeys <> null then ListCountHelper(visitor, ast)
+            else ...,
+
+        Table.RowCount = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 and groupKeys <> null then ListCountHelper(visitor, ast)
+            else ...,
+
+        Value.Multiply = (visitor, rowType, groupKeys, ast) => ValueFunctions(visitor, ast, "Multiply"),
+
+        Value.Add = (visitor, rowType, groupKeys, ast) => ValueFunctions(visitor, ast, "Add"),
+
+        Value.Divide = (visitor, rowType, groupKeys, ast) => ValueFunctions(visitor, ast, "Divide"),
+
+        Value.Subtract = (visitor, rowType, groupKeys, ast) => ValueFunctions(visitor, ast, "Subtract"),
+
+        Value.Compare = (visitor, rowType, groupKeys, ast) =>
+            let 
+                arg1minusarg2 = ValueFunctions(visitor, ast, "Subtract"),
+                addSign = InvocationWithType({Argument(arg1minusarg2, doubleTypeWithFacets)},funcName[SIGN],integerTypeWithFacets)
+            in
+                addSign,
+
+        Value.As = (visitor, rowType, groupKeys, ast) => ValueAsAndReplaceType(visitor, ast),
+
+        Value.ReplaceType = (visitor, rowType, groupKeys, ast) => ValueAsAndReplaceType(visitor, ast),
+
+        Duration.Days = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    days = BinaryOperation(sqlastarg1,"Divide",ticksperday),
+                    daysAsInteger = CastSqlExpression(days,integerTypeWithFacets),
+                    result = if Type.Is(sqlastarg1[Type], type nullable duration) then daysAsInteger
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Duration.Hours = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    durationpertick = BinaryOperation(sqlastarg1,"Divide",ticksperhour),
+                    hours = InvocationWithType(CreateArguments({durationpertick,Literal("24")}),"mod",integerTypeWithFacets),
+                    hoursAsInteger = CastSqlExpression(hours,integerTypeWithFacets),
+                    result = if Type.Is(sqlastarg1[Type], type nullable duration) then hoursAsInteger
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Duration.Minutes = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    durationpertick = BinaryOperation(sqlastarg1,"Divide",ticksperminute),
+                    minutes = InvocationWithType(CreateArguments({durationpertick,Literal("60")}),"mod",integerTypeWithFacets),
+                    minutesAsInteger = CastSqlExpression(minutes,integerTypeWithFacets),
+                    result = if Type.Is(sqlastarg1[Type], type nullable duration) then minutesAsInteger
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Duration.Seconds = (visitor, rowType, groupKeys, ast) =>
+            if GetListCount(ast[Arguments]) = 1 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    durationModTicks = InvocationWithType(CreateArguments({sqlastarg1,ticksperminute}),"mod",integerTypeWithFacets),
+                    durationModTicksAsDouble = CastSqlExpression(durationModTicks,doubleTypeWithFacets),
+                    tickspersecondasdouble = CastSqlExpression(tickspersecond,doubleTypeWithFacets),
+                    seconds = BinaryOperation(durationModTicksAsDouble,"Divide",tickspersecondasdouble),
+                    result = if Type.Is(sqlastarg1[Type], type nullable duration) then seconds
+                        else ...
+                 in
+                    result
+            else ...,
+
+        Duration.TotalDays = (visitor, rowType, groupKeys, ast) => DurationHelper(visitor, ast, ticksperday),
+
+        Duration.TotalHours = (visitor, rowType, groupKeys, ast) => DurationHelper(visitor, ast, ticksperhour),
+
+        Duration.TotalMinutes = (visitor, rowType, groupKeys, ast) => DurationHelper(visitor, ast, ticksperminute),
+
+        Duration.TotalSeconds = (visitor, rowType, groupKeys, ast) => DurationHelper(visitor, ast, tickspersecond),
+        
+        Text.RemoveRange = (visitor, rowType, groupKeys, ast) => 
+            if GetListCount(ast[Arguments]) = 2 or GetListCount(ast[Arguments]) = 3 then
+                let
+                    sqlastarg1 = visitor(ast[Arguments]{0}),
+                    sqlastarg2 = visitor(ast[Arguments]{1}),
+                    nativeType2 = Type.Facets(sqlastarg2[Type])[NativeTypeName],
+                    IntegerList = {"INTEGER", "BIGINT"},
+                    string = Argument(sqlastarg1, textTypeWithFacets),
+                    isOffsetInteger = GetListContains(IntegerList, nativeType2),
+                    offset = if isOffsetInteger 
+                        then Argument(BinaryOperation(sqlastarg2,"Add",one), integerTypeWithFacets)
+                        else [issue  = "Offset argument is not an integer"],
+                    EmptyString = Argument(SqlConstant("AnsiString","",type text),textTypeWithFacets),
+                    result = if GetListCount(ast[Arguments]) = 2 
+                        then InvocationWithType({string,offset,Argument(one,integerTypeWithFacets),EmptyString},"insert",textTypeWithFacets)
+                        else
+                            let
+                                sqlastarg3 = visitor(ast[Arguments]{2}),
+                                nativeType3 = Type.Facets(sqlastarg3[Type])[NativeTypeName],
+                                isCountInteger = GetListContains(IntegerList, nativeType2),
+                                count = if isCountInteger 
+                                    then Argument(visitor(ast[Arguments]{2}),textTypeWithFacets)
+                                    else ...
+                            in
+                                InvocationWithType({string,offset,count,EmptyString},"insert",textTypeWithFacets)
+                in
+                    result
+            else ...
+    ]
+  in
+    SqlGenerator & addToAstVisitor

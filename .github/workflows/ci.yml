@@ -28,7 +28,10 @@ jobs:
           Copy-Item "GizmoSQL.pq" $stagingDir
           Copy-Item "GizmoSQL.query.pq" $stagingDir
           Copy-Item "Diagnostics.pqm" $stagingDir
-          Copy-Item "OdbcConstants.pqm" $stagingDir
+          Copy-Item "FlightSqlAdbcConfig.pqm" $stagingDir
+          Copy-Item "SqlGenerator.pqm" $stagingDir
+          Copy-Item "SqlGeneratorCommon.pqm" $stagingDir
+          Copy-Item "TypeInfo.pqm" $stagingDir
           Copy-Item "resources.resx" $stagingDir
 
           # Icons (flattened into .mez root for Extension.Contents)
@@ -99,26 +102,19 @@ jobs:
           Get-ChildItem "C:\Program Files\GizmoSQL" | Select-Object Name
           echo "GIZMOSQL_SERVER=$serverExe" >> $env:GITHUB_ENV
 
-      - name: Download Windows ODBC driver
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Download Apache Flight SQL ADBC driver
         shell: pwsh
         run: |
-          gh release download v1.1.2 --repo gizmodata/gizmosql-odbc-driver `
-            --pattern "gizmosql-odbc-windows-x64.dll" `
-            --dir driver
-
-      - name: Register ODBC driver in Windows registry
-        shell: pwsh
-        run: |
-          $driverPath = (Resolve-Path "driver\gizmosql-odbc-windows-x64.dll").Path
-          Write-Host "Registering ODBC driver: $driverPath"
-          New-Item -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver" -Force
-          New-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\GizmoSQL ODBC Driver" `
-              -Name "Driver" -Value "$driverPath" -PropertyType String -Force
-          New-ItemProperty -Path "HKLM:\SOFTWARE\ODBC\ODBCINST.INI\ODBC Drivers" `
-              -Name "GizmoSQL ODBC Driver" -Value "Installed" -PropertyType String -Force
-          Write-Host "ODBC driver registered successfully"
+          # The Windows DLL is shipped inside the Python wheel as libadbc_driver_flightsql.so
+          # (Go-cross-compile naming quirk). Extract and rename to .dll.
+          $url = "https://github.com/apache/arrow-adbc/releases/download/apache-arrow-adbc-23/adbc_driver_flightsql-1.11.0-py3-none-win_amd64.whl"
+          Invoke-WebRequest -Uri $url -OutFile flightsql.whl
+          Expand-Archive -Path flightsql.whl -DestinationPath flightsql-extracted -Force
+          New-Item -ItemType Directory -Path driver -Force | Out-Null
+          Copy-Item flightsql-extracted\adbc_driver_flightsql\libadbc_driver_flightsql.so driver\libadbc_driver_flightsql.dll
+          $dllPath = (Resolve-Path "driver").Path
+          Write-Host "Adding $dllPath to PATH so the mashup container can load the driver"
+          echo "$dllPath" >> $env:GITHUB_PATH
 
       - name: Install Power Query SDK Tools
         shell: pwsh
@@ -157,21 +153,6 @@ jobs:
           }
           Write-Error "GizmoSQL server did not start in time"
           exit 1
-
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
-      - name: Test ODBC driver directly (C test)
-        shell: pwsh
-        run: |
-          # Compile and run a direct ODBC test to verify driver works outside Power Query
-          cl.exe /nologo /W3 tests\test_sqltables.c /Fe:tests\test_sqltables.exe odbc32.lib
-          Write-Host "Compiled test_sqltables.exe (64-bit)"
-
-          & tests\test_sqltables.exe
-          if ($LASTEXITCODE -ne 0) { throw "Direct ODBC test failed" }
 
       - name: Set PQTest credentials
         shell: pwsh
@@ -333,30 +314,19 @@ jobs:
           name: GizmoSQL-signed.pqx
           path: installer/connector
 
-      - name: Download ODBC driver DLL from latest release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download v1.1.2 --repo gizmodata/gizmosql-odbc-driver `
-            --pattern "gizmosql-odbc-windows-x64.dll" `
-            --dir installer\bin
-          Rename-Item installer\bin\gizmosql-odbc-windows-x64.dll gizmosql-odbc.dll
-
-      - name: Setup MSVC environment
-        uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Copy VC++ runtime DLLs
+      - name: Download Apache Flight SQL ADBC driver
         shell: pwsh
         run: |
-          $crtDir = Join-Path $env:VCToolsRedistDir "x64\Microsoft.VC143.CRT"
-          Write-Host "VC++ CRT directory: $crtDir"
-          $dlls = @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_codecvt_ids.dll")
-          foreach ($dll in $dlls) {
-            $src = Join-Path $crtDir $dll
-            if (!(Test-Path $src)) { throw "Missing: $src" }
-            Copy-Item $src "installer\bin\"
-            Write-Host "Copied $dll"
-          }
+          # Bundle a pinned ADBC driver version so the connector ships with a
+          # known-good driver. Tracks apache/arrow-adbc release apache-arrow-adbc-23
+          # (driver version 1.11.0). The Windows DLL is shipped inside the Python
+          # wheel as libadbc_driver_flightsql.so; we extract and rename to .dll.
+          $url = "https://github.com/apache/arrow-adbc/releases/download/apache-arrow-adbc-23/adbc_driver_flightsql-1.11.0-py3-none-win_amd64.whl"
+          Invoke-WebRequest -Uri $url -OutFile flightsql.whl
+          Expand-Archive -Path flightsql.whl -DestinationPath flightsql-extracted -Force
+          New-Item -ItemType Directory -Path installer\bin -Force | Out-Null
+          Copy-Item flightsql-extracted\adbc_driver_flightsql\libadbc_driver_flightsql.so installer\bin\libadbc_driver_flightsql.dll
+          Write-Host "Bundled libadbc_driver_flightsql.dll ($(Get-Item installer\bin\libadbc_driver_flightsql.dll | Select-Object -ExpandProperty Length) bytes)"
 
       - name: Install WiX Toolset
         run: |

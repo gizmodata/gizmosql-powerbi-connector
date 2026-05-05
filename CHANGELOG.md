@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **BREAKING:** Replaced ODBC backend with ADBC (Arrow Database Connectivity) over Arrow Flight SQL. The connector now calls `Adbc.DataSource` directly with the Apache `libadbc_driver_flightsql.dll`, eliminating the GizmoSQL ODBC driver dependency. Data flows column-natively in Apache Arrow format from server to Power BI — no row/column conversions in the driver path.
+- Bumped connector version to `2.0.0` to reflect the backend change.
+- Replaced `OdbcConstants.pqm` with `SqlGenerator.pqm`, `SqlGeneratorCommon.pqm`, `TypeInfo.pqm`, and `FlightSqlAdbcConfig.pqm` (adapted from spiceai/powerbi-connector under MIT license).
+- `Use Encryption (TLS)` now selects between `grpc+tls://` and `grpc://` URI schemes instead of an ODBC connection string flag.
+
+### Added
+- MSI installer now bundles `libadbc_driver_flightsql.dll` from `apache/arrow-adbc` release `apache-arrow-adbc-23` (driver version 1.11.0). Installed to `Program Files\GizmoSQL Power BI Connector\` and added to system `PATH` so the Power BI mashup container can resolve it by name.
+
+### Removed
+- Dependency on the GizmoSQL ODBC driver and its Windows registry registration. The MSI no longer ships the ODBC DLL or VC++ runtime — the Apache Flight SQL ADBC driver is a Go-built binary with no MSVCRT dependency.
+- OAuth (browser-flow SSO) authentication. The v1.x ODBC driver implemented the `/oauth/initiate` + poll dance internally; the generic Apache Flight SQL ADBC driver has no equivalent hook. OAuth will return once a GizmoSQL-specific Go ADBC driver (vendoring `apache/arrow-adbc/go/adbc/driver/flightsql` and adding the external-auth flow) is available.
+
 ## [v1.1.2] - 2026-03-02
 
 ### Changed
