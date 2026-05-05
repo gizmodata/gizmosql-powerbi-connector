@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Rewrite `SqlGenerator.pqm` to emit DuckDB-native SQL instead of DataFusion-flavored idioms inherited from spiceai/powerbi-connector. Without this fix, query folding for date/time math, `Text.PositionOf`, `Text.RemoveRange`, and `Logical.From(text)` would emit SQL that DuckDB rejects (e.g. `timestampadd`, `timestampdiff`, `TO_TIMESTAMP('string')`, `INSERT(s,p,n,r)`, `TO_VARCHAR`, 3-arg `POSITION`). Replaced with: `date_trunc`, `date_diff`, the `to_<unit>(n)` interval-builder family, `epoch_us`, `make_time`, `microsecond`, `instr`, `substring + concat`, and `CAST(... AS VARCHAR)`. Added a small `DuckDb.*` AST adapter block in `SqlGenerator.pqm` to keep the per-override changes localized.
+- Added `tests/duckdb-folding.sql` to verify the SQL idioms each rewritten override emits parse and evaluate correctly against DuckDB.
+
 ### Changed
 - **BREAKING:** Replaced ODBC backend with ADBC (Arrow Database Connectivity) over Arrow Flight SQL. The connector now calls `Adbc.DataSource` directly with the Apache `libadbc_driver_flightsql.dll`, eliminating the GizmoSQL ODBC driver dependency. Data flows column-natively in Apache Arrow format from server to Power BI — no row/column conversions in the driver path.
 - Bumped connector version to `2.0.0` to reflect the backend change.

@@ -127,21 +127,62 @@ let
 
 //AdbcHelpers using NativeTypes
     CreateArguments = (args) => List.Transform(args,each Argument(_,integerTypeWithFacets)),
+
+// --- DuckDB dialect adapters ---
+//   DataFusion-flavored idioms (timestampadd/timestampdiff/TO_TIMESTAMP(string))
+//   don't exist in DuckDB. These helpers emit DuckDB-native equivalents:
+//   date_trunc, date_diff, the to_<unit>(n) interval-builder family, and
+//   CAST(... AS TIMESTAMP/VARCHAR).
+    DuckDb.ToIntervalFn = (unit as text) as text =>
+        if unit = "year"        then "to_years"
+        else if unit = "quarter"     then "to_quarters"
+        else if unit = "month"       then "to_months"
+        else if unit = "week"        then "to_weeks"
+        else if unit = "day"         then "to_days"
+        else if unit = "hour"        then "to_hours"
+        else if unit = "minute"      then "to_minutes"
+        else if unit = "second"      then "to_seconds"
+        else if unit = "millisecond" then "to_milliseconds"
+        else if unit = "microsecond" then "to_microseconds"
+        // DuckDB INTERVAL granularity bottoms out at microsecond
+        else if unit = "nanosecond"  then "to_microseconds"
+        else "to_days",
+
+    DuckDb.IntervalLiteral = (unit as text, n) =>
+        Invocation({Argument(n, integerTypeWithFacets)}, DuckDb.ToIntervalFn(unit)),
+
+    DuckDb.DateAdd = (ts, unit as text, n) =>
+        BinaryOperation(ts, "Add", DuckDb.IntervalLiteral(unit, n)),
+
+    DuckDb.DateSubtract = (ts, unit as text, n) =>
+        BinaryOperation(ts, "Subtract", DuckDb.IntervalLiteral(unit, n)),
+
+    DuckDb.DateTrunc = (unit as text, ts) =>
+        Invocation(
+            CreateArguments({SqlConstant("AnsiString", unit, type text), ts}),
+            "date_trunc"
+        ),
+
+    DuckDb.DateDiff = (unit as text, a, b) =>
+        Invocation(
+            CreateArguments({SqlConstant("AnsiString", unit, type text), a, b}),
+            "date_diff"
+        ),
+
     IntFromHelper = (ast,visitor) =>
         let
             sqlastarg1 = visitor(ast[Arguments]{0}),
-            result = 
+            result =
                 if((Type.Is(sqlastarg1[Type],type text)) or (Type.Is(sqlastarg1[Type],type nullable text)) or (Type.Is(sqlastarg1[Type],type logical))
-                    or (Type.Is(sqlastarg1[Type],type nullable logical))) then 
+                    or (Type.Is(sqlastarg1[Type],type nullable logical))) then
                         CastSqlExpression(sqlastarg1, integerTypeWithFacets)
-                else 
+                else
                 if((Type.Is(sqlastarg1[Type],type date)) or (Type.Is(sqlastarg1[Type],type nullable date))) then
                     let
-                        startdate =  SqlConstant("AnsiString","1899-12-30",type text),
-                        casteddate = CastSqlExpression(startdate, datetypewithFacets),
-                        day = Literal("day")
+                        startdate = SqlConstant("AnsiString","1899-12-30",type text),
+                        casteddate = CastSqlExpression(startdate, datetypewithFacets)
                      in
-                        Invocation(CreateArguments({day,casteddate,sqlastarg1}),"timestampdiff")
+                        DuckDb.DateDiff("day", casteddate, sqlastarg1)
                 else ...
          in
             result,
@@ -214,40 +255,27 @@ let
 
     GetListCount = (listvalue) => if listvalue = null then 0 else List.Count(listvalue),   
     GetListContains = (listvalue,value) => List.Contains(listvalue,value),
-    DateStartOfHelper = (args,visitor,datetimepart) =>                                                       
-        let 
-            sqlexprList = List.Transform(args, (c) => visitor(c)),                    
-            totimestamp = Invocation({Argument(startOfYearDateTime,textTypeWithFacets)},"TO_TIMESTAMP"),
-            sqlconstant = Literal(datetimepart),
-            arguments = CreateArguments({sqlconstant,totimestamp,sqlexprList{0}}),
-            timestampdiff = Invocation(arguments,"timestampdiff"),
-            timestampaddarguments = CreateArguments({sqlconstant,timestampdiff,totimestamp}),
-            timestampadd = Invocation(timestampaddarguments,"timestampadd")
-         in
-            timestampadd,
+    // DuckDB: date_trunc('unit', x)
+    DateStartOfHelper = (args,visitor,datetimepart) =>
+        let
+            sqlexprList = List.Transform(args, (c) => visitor(c))
+        in
+            DuckDb.DateTrunc(datetimepart, sqlexprList{0}),
+    // DuckDB: date_trunc('unit', x) + to_<unit>(1) - to_<sub>(1)
+    //   sub is "day" for date results, "nanosecond" (=microsecond in DuckDB) for datetime
     DateEndOfHelper = (args,visitor,datetimepart,dayorsec) =>
         let
             sqlexprList = List.Transform(args, (c) => visitor(c)),
-            totimestamp = Invocation({Argument(startOfYearDateTime,textTypeWithFacets)},"TO_TIMESTAMP"),
-            datetimeconstant = Literal(datetimepart),
-            dayorsecconstant = Literal(dayorsec),
-            arguments = CreateArguments({datetimeconstant,totimestamp,sqlexprList{0}}),
-            timestampdiff = Invocation(arguments,"timestampdiff"),
-            timestampdiffplusone = BinaryOperation(timestampdiff,"Add",one),
-            timestampaddarguments = CreateArguments({datetimeconstant,timestampdiffplusone,totimestamp}),
-            timestampadd = Invocation(timestampaddarguments,"timestampadd"),
-            secondtimestampaddarguments = CreateArguments({dayorsecconstant,minusone,timestampadd}),
-            secondtimestampadd = Invocation(secondtimestampaddarguments,"timestampadd")
-         in
-            secondtimestampadd,
+            ts = sqlexprList{0},
+            startOfNext = DuckDb.DateAdd(DuckDb.DateTrunc(datetimepart, ts), datetimepart, one)
+        in
+            DuckDb.DateSubtract(startOfNext, dayorsec, one),
+    // DuckDB: x + to_<unit>(n)
     DateAddHelper = (args,visitor,datetimepart) =>
         let
-            sqlexprList = List.Transform(args, (c) => visitor(c)),
-            constant = Literal(datetimepart),
-            arguments = CreateArguments({constant,sqlexprList{1},sqlexprList{0}}),
-            timestampadd = Invocation(arguments,"timestampadd")
-         in
-            timestampadd,
+            sqlexprList = List.Transform(args, (c) => visitor(c))
+        in
+            DuckDb.DateAdd(sqlexprList{0}, datetimepart, sqlexprList{1}),
 
     MinMaxHelper = (foldedArg,functionName) =>
         if Type.Is(foldedArg[Type], type nullable number) or
@@ -296,28 +324,17 @@ let
                 else ...
         else ...,
     
+    // DuckDB: (epoch_us(x) - epoch_us(TIMESTAMP '1899-12-30')) / 86400000000.0
+    //   Returns the OLE-Automation-style "days since 1899-12-30" double.
     ConvertToDoubleFromDateTime = (datetimeAst, visitor) =>
-        let 
-            day = Literal("day"),
-            cast1899date = Argument(CastSqlExpression(date1899wotime, datetypewithFacets),null),
-            arg3 = Argument(datetimeAst,null),
-            minusoneAsInteger = CastSqlExpression(minusone, integerTypeWithFacets),
-            oneAsInteger = CastSqlExpression(one, integerTypeWithFacets),
-            whencondition = BinaryLogicalOperation("LessThan",datetimeAst,InvocationWithType({Argument(date18991230,doubleTypeWithFacets)},"TO_TIMESTAMP",datetimeTypeWithFacets)),
-            whenItem =WhenItem(whencondition,minusoneAsInteger,Number.Type),
-            case = CaseFunction({whenItem},oneAsInteger,null,Number.Type),
-            nanosecondticksperday = Literal("86400000000000"),
-            ticksperdayAsDouble = CastSqlExpression(nanosecondticksperday, doubleTypeWithFacets),
-            diff1 = InvocationWithType({Argument(day,null),cast1899date,arg3}, "timestampdiff", decimalTypeWithFacets),
-            adddatewithdiff1 = InvocationWithType({Argument(day,null),Argument(diff1,null),cast1899date}, "timestampadd", datetimeTypeWithFacets),
-            diff3 = InvocationWithType({Argument(nanosecond,null),Argument(adddatewithdiff1,null),arg3}, "timestampdiff", decimalTypeWithFacets),
-            castdiff3 = CastSqlExpression(diff3, doubleTypeWithFacets),
-            castdiff1 = CastSqlExpression(diff1, doubleTypeWithFacets),
-            divide = BinaryOperation(castdiff3, "Divide", ticksperdayAsDouble),
-            multiply = CastSqlExpression(BinaryOperation(divide, "Multiply", case),doubleTypeWithFacets),
-            result  = CastSqlExpression(BinaryOperation(diff1, "Add", multiply),doubleTypeWithFacets)
-        in 
-            result, 
+        let
+            microsPerDay = CastSqlExpression(Literal("86400000000.0"), doubleTypeWithFacets),
+            epochAnchor = CastSqlExpression(date18991230, datetimeTypeWithFacets),
+            epochUsX = InvocationWithType({Argument(datetimeAst, datetimeTypeWithFacets)}, "epoch_us", doubleTypeWithFacets),
+            epochUsAnchor = InvocationWithType({Argument(epochAnchor, datetimeTypeWithFacets)}, "epoch_us", doubleTypeWithFacets),
+            microsDiff = BinaryOperation(epochUsX, "Subtract", epochUsAnchor)
+        in
+            CastSqlExpression(BinaryOperation(microsDiff, "Divide", microsPerDay), doubleTypeWithFacets),
 
     DurationHelper = (visitor, ast, ticks) =>
         if GetListCount(ast[Arguments]) = 1 then
@@ -400,16 +417,18 @@ let
                    CastSqlExpression(sqlastarg, textTypeWithFacets)
             else ...,
         
+        // DuckDB: instr(haystack, needle) - 1
+        //   instr returns 1-based position or 0 if not found; subtracting 1 yields
+        //   Power Query's 0-based convention with -1 for "not found".
         Text.PositionOf = (visitor, rowType, groupKeys, ast) =>
             if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Text.PositionOf and  GetListCount(ast[Arguments]) = 2 then
                 let
-                    one = Literal("1"),
+                    oneLit = Literal("1"),
                     sqlargs = List.Transform(ast[Arguments], (c) => visitor(c)),
-                    arg1 = Argument(sqlargs{0},textTypeWithFacets),
-                    arg2 = Argument(sqlargs{1},textTypeWithFacets),
-                    arg3 = Argument(one,integerTypeWithFacets),
-                    PositionFunction = Invocation({arg2,arg1,arg3},"POSITION"),
-                    result = BinaryOperation(PositionFunction,"Subtract",one)
+                    haystack = Argument(sqlargs{0},textTypeWithFacets),
+                    needle   = Argument(sqlargs{1},textTypeWithFacets),
+                    instrCall = Invocation({haystack, needle}, "instr"),
+                    result = BinaryOperation(instrCall,"Subtract",oneLit)
                  in
                     result
               else ...,
@@ -522,60 +541,50 @@ let
             then DateAddHelper(ast[Arguments],visitor,"day")
             else ...  ,
 
+        // DuckDB: make_time(hour(t), 59, 59.999999) — last microsecond of the hour
         Time.EndOfHour = (visitor, rowType, groupKeys, ast) =>
             if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Time.EndOfHour and  GetListCount(ast[Arguments]) = 1 then
                 let
-                    sqlexprList = List.Transform(ast[Arguments], (c) => visitor(c)),
-                    totimestamp = Invocation({Argument(startOfYearDateTime,type text)},"TO_TIMESTAMP"),
-                    arguments = CreateArguments({hour,totimestamp,sqlexprList{0}}),
-                    timestampdiff = Invocation(arguments,"timestampdiff"),
-                    timestampdiffplusone = BinaryOperation(timestampdiff,"Add",one),
-                    timestampaddarguments = CreateArguments({hour,timestampdiffplusone,totimestamp}),
-                    timestampadd = Invocation(timestampaddarguments,"timestampadd"),
-                    secondtimestampaddargs = CreateArguments({nanosecond,minusone,timestampadd}),
-                    secondtimestampadd = Invocation(secondtimestampaddargs,"timestampadd")
-                 in
-                    secondtimestampadd
+                    t = visitor(ast[Arguments]{0}),
+                    hourCall = InvocationWithType({Argument(t, timeTypeWithFacets)}, "hour", integerTypeWithFacets),
+                    fiftyNine = Literal("59"),
+                    secEnd = CastSqlExpression(Literal("59.999999"), doubleTypeWithFacets)
+                in
+                    InvocationWithType(
+                        {Argument(hourCall, integerTypeWithFacets), Argument(fiftyNine, integerTypeWithFacets), Argument(secEnd, doubleTypeWithFacets)},
+                        "make_time",
+                        timeTypeWithFacets
+                    )
             else ...,
 
+        // DuckDB: microsecond(x)::DOUBLE / 1000000.0
+        //   DuckDB's microsecond(t) returns micros-since-start-of-minute (0..59999999),
+        //   so dividing by 1e6 yields seconds-with-fraction (0..59.999999).
         Time.Second = (visitor, rowType, groupKeys, ast) =>
             if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Time.Second and  GetListCount(ast[Arguments]) = 1 then
                 let
-                    sqlexprarg = visitor(ast[Arguments]{0}),
-                    time000000 = SqlConstant("AnsiString","00:00:00.0000000",type text),
-                    caststarttime = CastSqlExpression(time000000,timeTypeWithFacets),
-                    totimestamp = Invocation({Argument(startOfYearDateTime,type text)},"TO_TIMESTAMP"),
-                    castnumericnano = CastSqlExpression(nanosecondspersecond,doubleTypeWithFacets),
-                    result = if(Type.Is(sqlexprarg[Type],type nullable datetime)) then
-                        let
-                            timestampdiff = Invocation(CreateArguments({minute,totimestamp,sqlexprarg}),"timestampdiff"),
-                            timestampadd = Invocation(CreateArguments({minute,timestampdiff,totimestamp}),"timestampadd"),
-                            secondtimestampadd = Invocation(CreateArguments({nanosecond,timestampadd,sqlexprarg}),"timestampdiff")
-                         in
-                            BinaryOperation(CastSqlExpression(secondtimestampadd,doubleTypeWithFacets),"Divide",castnumericnano)
-                            else if(Type.Is(sqlexprarg[Type],type nullable time)) then
-                                let
-                                    timestampdiff = Invocation(CreateArguments({minute,caststarttime,sqlexprarg}),"timestampdiff"),
-                                    timestampadd = Invocation(CreateArguments({minute,timestampdiff,caststarttime}),"timestampadd"),
-                                    timestampdiff1 = Invocation(CreateArguments({nanosecond,timestampadd,sqlexprarg}),"timestampdiff")
-                                 in
-                                    BinaryOperation(CastSqlExpression(timestampdiff1,doubleTypeWithFacets),"Divide",castnumericnano)
-                            else ...
+                    x = visitor(ast[Arguments]{0}),
+                    usCall = InvocationWithType({Argument(x, x[Type])}, "microsecond", doubleTypeWithFacets),
+                    divisor = CastSqlExpression(Literal("1000000.0"), doubleTypeWithFacets)
                  in
-                    result
+                    if (Type.Is(x[Type], type nullable datetime) or Type.Is(x[Type], type nullable time))
+                    then BinaryOperation(usCall, "Divide", divisor)
+                    else ...
               else ...,
 
+        // DuckDB: make_time(hour(t), 0, 0.0)
         Time.StartOfHour = (visitor, rowType, groupKeys, ast) =>
             if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = Time.StartOfHour and  GetListCount(ast[Arguments]) = 1 then
                 let
-                    sqlexprList = List.Transform(ast[Arguments], (c) => visitor(c)),
-                    totimestamp = Invocation({Argument(startOfYearDateTime,type text)},"TO_TIMESTAMP"),
-                    arguments = CreateArguments({hour,totimestamp,sqlexprList{0}}),
-                    timestampdiff = Invocation(arguments,"timestampdiff"),
-                    timestampaddarguments = CreateArguments({hour,timestampdiff,totimestamp}),
-                    timestampadd = Invocation(timestampaddarguments,"timestampadd")
-                 in
-                    timestampadd
+                    t = visitor(ast[Arguments]{0}),
+                    hourCall = InvocationWithType({Argument(t, timeTypeWithFacets)}, "hour", integerTypeWithFacets),
+                    zeroDouble = CastSqlExpression(zero, doubleTypeWithFacets)
+                in
+                    InvocationWithType(
+                        {Argument(hourCall, integerTypeWithFacets), Argument(zero, integerTypeWithFacets), Argument(zeroDouble, doubleTypeWithFacets)},
+                        "make_time",
+                        timeTypeWithFacets
+                    )
             else ...,
 
         List.Contains = (visitor, rowType, groupKeys, ast) =>
@@ -627,7 +636,7 @@ let
                                 BinaryLogicalOperation("Equals",case,one)
                         else if(Type.Is(sqlastarg[Type],type nullable text)) then
                             let
-                                whencondition = BinaryLogicalOperation("Equals",InvocationWithType({Argument(sqlastarg,sqlastarg[Type])},"TO_VARCHAR",textTypeWithFacets),onestring),
+                                whencondition = BinaryLogicalOperation("Equals",CastSqlExpression(sqlastarg,textTypeWithFacets),onestring),
                                 whenItem = WhenItem(whencondition,Literal("true"),Text.Type),
                                 case = CaseFunction({whenItem},Literal("false"),null,Text.Type)
                              in
@@ -646,7 +655,7 @@ let
                         else if(Type.Is(sqlastarg1[Type],type nullable datetime)) then ConvertToDoubleFromDateTime(sqlastarg1,visitor)
                         else if(Type.Is(sqlastarg1[Type],type nullable date))
                         then
-                            CastSqlExpression(InvocationWithType(CreateArguments({Literal("day"),CastSqlExpression(date1899wotime,datetypewithFacets),CastSqlExpression(sqlastarg1,datetypewithFacets)}),"timestampdiff",datetypewithFacets),doubleTypeWithFacets)
+                            CastSqlExpression(DuckDb.DateDiff("day", CastSqlExpression(date1899wotime,datetypewithFacets), CastSqlExpression(sqlastarg1,datetypewithFacets)), doubleTypeWithFacets)
                         else ...
                  in
                     result
@@ -681,7 +690,7 @@ let
                             else  CastSqlExpression(sqlastarg1,doubleTypeWithFacets)
                         else if(Type.Is(sqlastarg1[Type],type nullable datetime)) then ConvertToDoubleFromDateTime(sqlastarg1,visitor)
                         else if(Type.Is(sqlastarg1[Type],type nullable date)) then
-                            CastSqlExpression(InvocationWithType(CreateArguments({Literal("day"),CastSqlExpression(date1899wotime,datetypewithFacets),CastSqlExpression(sqlastarg1,datetypewithFacets)}),"timestampdiff",datetypewithFacets),doubleTypeWithFacets)
+                            CastSqlExpression(DuckDb.DateDiff("day", CastSqlExpression(date1899wotime,datetypewithFacets), CastSqlExpression(sqlastarg1,datetypewithFacets)), doubleTypeWithFacets)
                         else ...
                  in 
                     result
@@ -694,53 +703,45 @@ let
                     result = if(Type.Is(sqlastarg1[Type],type nullable datetime)) then CastSqlExpression(sqlastarg1,datetypewithFacets)
                         else if(Type.Is(sqlastarg1[Type],type nullable date)) then sqlastarg1
                         else if(Type.Is(sqlastarg1[Type],type nullable number)) then
-                            InvocationWithType(CreateArguments({Literal("day"),CastSqlExpression(sqlastarg1,decimalTypeWithFacets),CastSqlExpression(date1899wotime,datetypewithFacets)}),"timestampadd",datetypewithFacets)
+                            // DuckDB: DATE '1899-12-30' + to_days(CAST(n AS BIGINT))
+                            DuckDb.DateAdd(
+                                CastSqlExpression(date1899wotime, datetypewithFacets),
+                                "day",
+                                CastSqlExpression(sqlastarg1, integerTypeWithFacets)
+                            )
                         else ...
                  in
                     result
             else ...,
-    
+
+        // DuckDB:
+        //   date → CAST AS TIMESTAMP
+        //   datetime → identity
+        //   time → TIMESTAMP '1899-12-30' + to_microseconds(epoch_us(t)::BIGINT)
+        //   number → TIMESTAMP '1899-12-30' + to_microseconds(CAST(n * 86400000000 AS BIGINT))
         DateTime.From = (visitor, rowType, groupKeys, ast) =>
             if ast[Kind] = "Invocation" and ast[Function][Kind] = "Constant" and ast[Function][Value] = DateTime.From and  GetListCount(ast[Arguments]) = 1 then
                 let
                     sqlastarg1 = visitor(ast[Arguments]{0}),
-                    abs = InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},funcName[ABS],doubleTypeWithFacets),
-                    floor = InvocationWithType({Argument(abs,doubleTypeWithFacets)},funcName[floor],doubleTypeWithFacets),
-                    time000000 = SqlConstant("AnsiString","00:00:00.0000000",type text),
-                    cast1 = CastSqlExpression(nanosecondspersecond,doubleTypeWithFacets),
-                    cast2 = CastSqlExpression(ticksperday,doubleTypeWithFacets),
-                    cast3 = CastSqlExpression(time000000,timeTypeWithFacets),
-                    ToTimeStamp = InvocationWithType({Argument(date18991230,doubleTypeWithFacets)},"TO_TIMESTAMP",datetimeTypeWithFacets),
-                    hourFunction = InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},funcName[hour],doubleTypeWithFacets),
-                    minuteFunction = InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},funcName[minute],doubleTypeWithFacets),
-                    firstcondition = BinaryLogicalOperation("LessThan",sqlastarg1,Literal("0")),
-                    secondcondition = BinaryLogicalOperation("NotEqualTo",BinaryOperation(abs,"Subtract",floor),Literal("0")),
-                    whencondition = ConditionOperation("and",firstcondition,secondcondition),
-                    whenItem = WhenItem(whencondition,one,doubleTypeWithFacets),
-                    case = CaseFunction({whenItem},one,null,doubleTypeWithFacets),
-                    timestamptype = type datetime,
-                    timestamptypewithFacets = Type.ReplaceFacets(timestamptype,[NativeTypeName = "TIMESTAMP"]),
-                    result = if(Type.Is(sqlastarg1[Type],type nullable date)) then CastSqlExpression(sqlastarg1,timestamptypewithFacets)
-                        else if(Type.Is(sqlastarg1[Type],type nullable datetime)) then sqlastarg1
-                        else if(Type.Is(sqlastarg1[Type],type nullable time)) then
+                    epochAnchor = CastSqlExpression(date18991230, datetimeTypeWithFacets),
+                    microsPerDay = CastSqlExpression(Literal("86400000000"), doubleTypeWithFacets),
+                    result =
+                        if Type.Is(sqlastarg1[Type], type nullable date) then
+                            CastSqlExpression(sqlastarg1, datetimeTypeWithFacets)
+                        else if Type.Is(sqlastarg1[Type], type nullable datetime) then
+                            sqlastarg1
+                        else if Type.Is(sqlastarg1[Type], type nullable time) then
                             let
-                                timestampadd1 = InvocationWithType(CreateArguments({hour,hourFunction,ToTimeStamp}),"timestampadd",datetimeTypeWithFacets),
-                                timestampadd2 = InvocationWithType(CreateArguments({minute,minuteFunction,timestampadd1}),"timestampadd",datetimeTypeWithFacets),
-                                timestampdiff1 = InvocationWithType(CreateArguments({minute,cast1,sqlastarg1}),"timestampdiff",doubleTypeWithFacets),
-                                timestampadd3 = InvocationWithType(CreateArguments({minute,timestampdiff1,cast3}),"timestampadd",datetimeTypeWithFacets),
-                                timestampdiff2 = InvocationWithType(CreateArguments({nanosecond,timestampadd3,sqlastarg1}),"timestampdiff",doubleTypeWithFacets),
-                                casttimestampdiff = CastSqlExpression(timestampdiff2,doubleTypeWithFacets),
-                                dividebynano = BinaryOperation(casttimestampdiff,"Divide",cast1)
-                             in
-                                InvocationWithType(CreateArguments({second,dividebynano,timestampadd2}),"timestampadd",datetimeTypeWithFacets)
-                        else if(Type.Is(sqlastarg1[Type],type nullable number)) then
+                                epochUsTime = InvocationWithType({Argument(sqlastarg1, timeTypeWithFacets)}, "epoch_us", integerTypeWithFacets)
+                            in
+                                DuckDb.DateAdd(epochAnchor, "microsecond", epochUsTime)
+                        else if Type.Is(sqlastarg1[Type], type nullable number) then
                             let
-                                secondarg = BinaryOperation(BinaryOperation(BinaryOperation(abs,"Subtract",floor),"Add",case),"Multiply",cast2),
-                                thirdarg = InvocationWithType(List.Transform({Literal("day"),InvocationWithType({Argument(sqlastarg1,doubleTypeWithFacets)},"floor",doubleTypeWithFacets),ToTimeStamp},each Argument(_,doubleTypeWithFacets)),"timestampadd",datetimeTypeWithFacets)
-                             in
-                                InvocationWithType(CreateArguments({nanosecond,secondarg,thirdarg}),"timestampadd",datetimeTypeWithFacets)
+                                microsAsInt = CastSqlExpression(BinaryOperation(sqlastarg1, "Multiply", microsPerDay), integerTypeWithFacets)
+                            in
+                                DuckDb.DateAdd(epochAnchor, "microsecond", microsAsInt)
                         else ...
-                 in
+                in
                     result
             else ...,
 
@@ -893,31 +894,41 @@ let
 
         Duration.TotalSeconds = (visitor, rowType, groupKeys, ast) => DurationHelper(visitor, ast, tickspersecond),
         
-        Text.RemoveRange = (visitor, rowType, groupKeys, ast) => 
+        // DuckDB: concat(substring(s, 1, offset), substring(s, offset + count + 1))
+        //   PowerQuery's offset is 0-based; SQL substring is 1-based, so:
+        //     prefix = chars 1..offset  (substring(s, 1, offset))
+        //     suffix = chars after the removed range (substring(s, offset+count+1))
+        //   2-arg form removes one char (count = 1).
+        Text.RemoveRange = (visitor, rowType, groupKeys, ast) =>
             if GetListCount(ast[Arguments]) = 2 or GetListCount(ast[Arguments]) = 3 then
                 let
                     sqlastarg1 = visitor(ast[Arguments]{0}),
                     sqlastarg2 = visitor(ast[Arguments]{1}),
                     nativeType2 = Type.Facets(sqlastarg2[Type])[NativeTypeName],
                     IntegerList = {"INTEGER", "BIGINT"},
-                    string = Argument(sqlastarg1, textTypeWithFacets),
                     isOffsetInteger = GetListContains(IntegerList, nativeType2),
-                    offset = if isOffsetInteger 
-                        then Argument(BinaryOperation(sqlastarg2,"Add",one), integerTypeWithFacets)
-                        else [issue  = "Offset argument is not an integer"],
-                    EmptyString = Argument(SqlConstant("AnsiString","",type text),textTypeWithFacets),
-                    result = if GetListCount(ast[Arguments]) = 2 
-                        then InvocationWithType({string,offset,Argument(one,integerTypeWithFacets),EmptyString},"insert",textTypeWithFacets)
-                        else
-                            let
-                                sqlastarg3 = visitor(ast[Arguments]{2}),
-                                nativeType3 = Type.Facets(sqlastarg3[Type])[NativeTypeName],
-                                isCountInteger = GetListContains(IntegerList, nativeType2),
-                                count = if isCountInteger 
-                                    then Argument(visitor(ast[Arguments]{2}),textTypeWithFacets)
-                                    else ...
-                            in
-                                InvocationWithType({string,offset,count,EmptyString},"insert",textTypeWithFacets)
+                    count = if GetListCount(ast[Arguments]) = 2
+                        then one
+                        else visitor(ast[Arguments]{2}),
+                    prefix = InvocationWithType(
+                        {Argument(sqlastarg1, textTypeWithFacets), Argument(Literal("1"), integerTypeWithFacets), Argument(sqlastarg2, integerTypeWithFacets)},
+                        "substring",
+                        textTypeWithFacets
+                    ),
+                    suffixStart = BinaryOperation(BinaryOperation(sqlastarg2, "Add", count), "Add", one),
+                    suffix = InvocationWithType(
+                        {Argument(sqlastarg1, textTypeWithFacets), Argument(suffixStart, integerTypeWithFacets)},
+                        "substring",
+                        textTypeWithFacets
+                    ),
+                    result =
+                        if isOffsetInteger
+                        then InvocationWithType(
+                            {Argument(prefix, textTypeWithFacets), Argument(suffix, textTypeWithFacets)},
+                            "concat",
+                            textTypeWithFacets
+                        )
+                        else ...
                 in
                     result
             else ...
