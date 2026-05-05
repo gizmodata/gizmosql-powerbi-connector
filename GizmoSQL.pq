@@ -73,7 +73,10 @@ BuildUri = (server as text, port as number, useEncryption as nullable logical) a
     in
         scheme & "://" & server & ":" & Number.ToText(port);
 
-GetCredentialConnectionString = () as record =>
+// Adbc.DataSource expects CredentialConnectionString to evaluate to a record,
+// not a function — pattern matches spiceai/powerbi-connector. Defining this as
+// `() as record => ...` would pass the function itself, leaving auth unset.
+GetCredentialConnectionString =
     let
         Credential = Extension.CurrentCredential(),
         kind = Credential[AuthenticationKind]?
