@@ -134,7 +134,7 @@ GizmoSQL = [
 
 // Publish to Power BI "Get Data" dialog
 GizmoSQL.Publish = [
-    Beta = true,
+    Beta = false,
     Category = "Database",
     ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
     LearnMoreUrl = "https://github.com/gizmodata/gizmosql-powerbi-connector",
