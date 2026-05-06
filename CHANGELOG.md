@@ -4,7 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Known issues
+- Querying row data through `GizmoSQL.Contents` requires a `gizmodata/gizmosql` server build that emits `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata on `GetColumns` (so ADBC's `xdbc_type_name` is populated). The fix is committed upstream in `src/duckdb/duckdb_tables_schema_batch_reader.cpp` but not yet in the published `:latest` Docker image. Until the image is republished, the row-data PQTest cases live under `tests/_pending-server-metadata/` and are skipped by CI. Navigation (catalog > schema > table tree) and connection/auth work against the current image.
+
+### Added
+- `FLOAT` row in `TypeInfo.pqm` mirroring `REAL`. DuckDB exposes single-precision float columns under the type name `"FLOAT"` (canonical) regardless of whether they were declared `REAL` or `FLOAT`, so the connector needs both names in its lookup table.
+
 ### Fixed
+- Pass `CredentialConnectionString` to `Adbc.DataSource` as a record (let-block) instead of a function value, so `username`/`password` actually reach the underlying ADBC driver. Without this, the Apache Flight SQL ADBC driver sent no Authorization header and GizmoSQL rejected metadata calls with "Invalid Authorization Header type! (Unknown; GetObjects(GetCatalogs))".
 - Rewrite `SqlGenerator.pqm` to emit DuckDB-native SQL instead of DataFusion-flavored idioms inherited from spiceai/powerbi-connector. Without this fix, query folding for date/time math, `Text.PositionOf`, `Text.RemoveRange`, and `Logical.From(text)` would emit SQL that DuckDB rejects (e.g. `timestampadd`, `timestampdiff`, `TO_TIMESTAMP('string')`, `INSERT(s,p,n,r)`, `TO_VARCHAR`, 3-arg `POSITION`). Replaced with: `date_trunc`, `date_diff`, the `to_<unit>(n)` interval-builder family, `epoch_us`, `make_time`, `microsecond`, `instr`, `substring + concat`, and `CAST(... AS VARCHAR)`. Added a small `DuckDb.*` AST adapter block in `SqlGenerator.pqm` to keep the per-override changes localized.
 - Added `tests/duckdb-folding.sql` to verify the SQL idioms each rewritten override emits parse and evaluate correctly against DuckDB.
 

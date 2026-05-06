@@ -88,6 +88,21 @@ let
                 LiteralPrefix = null,
                 LiteralSuffix = null
             ],
+            // DuckDB exposes REAL columns as type name "FLOAT" (the canonical
+            // DuckDB name; REAL is an alias). The server emits whatever DuckDB
+            // reports, so this row is needed for type-name lookups to match.
+            [
+                Name = "FLOAT",
+                SqlType = 7,
+                Type = Single.Type,
+                Unsigned = false,
+                ColumnSize = 24,
+                GetLiteral = GetNumberLiteral,
+                Searchable = 2,
+                NumberPrecisionRadix = 2,
+                LiteralPrefix = null,
+                LiteralSuffix = null
+            ],
             [
                 Name = "DOUBLE",
                 SqlType = 8,
