@@ -2,6 +2,11 @@
 
 A Power Query custom connector (`.pqx`) that wraps the [GizmoSQL ODBC driver](https://github.com/gizmodata/gizmosql-odbc-driver), enabling Power BI Desktop users to connect to [GizmoSQL](https://gizmodata.com/gizmosql) via **Get Data > Database > GizmoSQL**.
 
+## Requirements
+
+- **GizmoSQL server `≥ v1.23.0`** for the v2.x connector. v1.23.0 is the first release that emits `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata on `GetColumns` responses; without it, Power BI surfaces "Unable to understand the type for column" the moment you click into a table in the Navigator. Connection and table-tree navigation will still succeed against older servers, so the failure is visible but localized — upgrade the server to resolve.
+- **Power BI Desktop August 2025+** for the bundled `Adbc.DataSource` M function used by this connector.
+
 ## Features
 
 - **DirectQuery support** — live queries against GizmoSQL without data import

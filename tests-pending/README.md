@@ -1,4 +1,4 @@
-# Pending — awaiting `gizmodata/gizmosql:latest` Docker image with metadata fix
+# Pending — awaiting `gizmodata/gizmosql ≥ v1.23.0` Docker image
 
 These PQTest queries all fetch row data and currently fail in Power BI with:
 
@@ -6,7 +6,7 @@ These PQTest queries all fetch row data and currently fail in Power BI with:
 
 ## Status
 
-**Server fix complete (unmerged/unreleased).** The required change in
+**Server fix complete (pending v1.23.0 release).** The required change in
 `gizmodata/gizmosql` (`src/duckdb/duckdb_tables_schema_batch_reader.cpp`) adds
 `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata to `GetColumns` Flight SQL
 responses, populating ADBC's `xdbc_type_name` field. Verified locally with a
