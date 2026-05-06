@@ -5,10 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Compatibility
-- Requires **GizmoSQL server `≥ v1.23.0`** for full functionality. v1.23.0 is the first server release that emits `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata on `GetColumns`, which Power BI's `Adbc.DataSource` consumes to map columns to types. Connection, auth, and navigation work against older servers; row-data fetch fails with "Unable to understand the type for column".
-
-### Known issues
-- The seven row-data PQTest cases (Aggregation, ColumnSelection, DataTypes, Filtering, RowCount, Sorting, TopN) live in `tests-pending/` (outside the `tests/` tree PQTest scans) until a `gizmodata/gizmosql` Docker image with v1.23.0 is published. Move them back to `tests/` after the image republish — CI will pick them up automatically.
+- Requires **GizmoSQL server `≥ v1.23.0`** for full functionality. v1.23.0 is the first server release that emits `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata on `GetColumns`, which Power BI's `Adbc.DataSource` consumes to map columns to types. Connection, auth, and navigation work against older servers; row-data fetch fails with "Unable to understand the type for column". CI's `pqtest-connector` job will stay red against `gizmodata/gizmosql:latest` until the v1.23.0 image is published.
 
 ### Added
 - `FLOAT` row in `TypeInfo.pqm` mirroring `REAL`. DuckDB exposes single-precision float columns under the type name `"FLOAT"` (canonical) regardless of whether they were declared `REAL` or `FLOAT`, so the connector needs both names in its lookup table.
