@@ -1,0 +1,18 @@
+# Get thumbprint from the .pqx
+  Add-Type -AssemblyName WindowsBase
+  $package = [System.IO.Packaging.Package]::Open("C:\Users\philbe77\Documents\Power BI Desktop\Custom Connectors\GizmoSQL.pqx", [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read)
+  $dsm = New-Object System.IO.Packaging.PackageDigitalSignatureManager($package)
+  $pqxThumbprint = $dsm.Signatures[0].Signer.Thumbprint
+  $package.Close()
+
+  # Get thumbprint from the registry
+  $regThumbprint = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Power BI Desktop" -Name TrustedCertificateThumbprints).TrustedCertificateThumbprints
+
+  # Compare
+  if ($regThumbprint -contains $pqxThumbprint) {
+      Write-Host "Match: $pqxThumbprint"
+  } else {
+      Write-Host "MISMATCH"
+      Write-Host "  PQX:      $pqxThumbprint"
+      Write-Host "  Registry: $regThumbprint"
+  }

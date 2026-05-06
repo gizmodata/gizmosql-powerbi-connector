@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Known issues
-- Querying row data through `GizmoSQL.Contents` requires a `gizmodata/gizmosql` server build that emits `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata on `GetColumns` (so ADBC's `xdbc_type_name` is populated). The fix is committed upstream in `src/duckdb/duckdb_tables_schema_batch_reader.cpp` but not yet in the published `:latest` Docker image. Until the image is republished, the row-data PQTest cases live under `tests/_pending-server-metadata/` and are skipped by CI. Navigation (catalog > schema > table tree) and connection/auth work against the current image.
+- Querying row data through `GizmoSQL.Contents` requires a `gizmodata/gizmosql` server build that emits `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata on `GetColumns` (so ADBC's `xdbc_type_name` is populated). The fix is committed upstream in `src/duckdb/duckdb_tables_schema_batch_reader.cpp` but not yet in the published `:latest` Docker image. Until the image is republished, the row-data PQTest cases live under `tests-pending/` (outside the `tests/` tree PQTest scans) and are skipped by CI. Navigation (catalog > schema > table tree) and connection/auth work against the current image.
 
 ### Added
 - `FLOAT` row in `TypeInfo.pqm` mirroring `REAL`. DuckDB exposes single-precision float columns under the type name `"FLOAT"` (canonical) regardless of whether they were declared `REAL` or `FLOAT`, so the connector needs both names in its lookup table.
