@@ -8,6 +8,10 @@ obj/
 .vs/
 *.user
 *.suo
+.idea/
+
+# Scratch files
+test.txt
 
 # OS
 .DS_Store
