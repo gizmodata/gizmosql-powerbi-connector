@@ -447,12 +447,41 @@ jobs:
         with:
           subject-path: release/*
 
+      - name: Extract changelog section for this tag
+        id: changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # Match "## [v<version>] " — trailing space prevents v1.11.1 matching v1.11.14.
+          # CHANGELOG headers look like: "## [v2.0.0] - 2026-05-06"
+          notes=$(awk -v header="## [v${version}] " '
+            index($0, header) == 1 { p=1; next }
+            p && /^## \[/ { exit }
+            p { print }
+          ' CHANGELOG.md)
+          # Trim leading/trailing blank lines so the rendered release page is clean.
+          notes=$(printf '%s\n' "$notes" | awk '
+            NF { found=1 }
+            found { buf = buf $0 ORS }
+            END { sub(/\n+$/, "", buf); print buf }
+          ')
+          {
+            if [ -n "$notes" ]; then
+              printf '%s\n' "$notes"
+            else
+              printf '_No CHANGELOG.md entry found for `v%s`._\n' "$version"
+            fi
+          } > /tmp/release-notes.md
+          echo "Wrote $(wc -l < /tmp/release-notes.md) lines to /tmp/release-notes.md"
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # --notes-file provides the curated CHANGELOG section as the body;
+          # --generate-notes appends auto-generated PR/commit list below it.
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
+            --notes-file /tmp/release-notes.md \
             --generate-notes \
             --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" \
             release/*

@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - `FLOAT` row in `TypeInfo.pqm` mirroring `REAL`. DuckDB exposes single-precision float columns under the type name `"FLOAT"` (canonical) regardless of whether they were declared `REAL` or `FLOAT`, so the connector needs both names in its lookup table.
+- GitHub Release notes now embed the curated `CHANGELOG.md` section for the tag at the top, with the auto-generated PR/commit list appended below — keeps `CHANGELOG.md` as the single source of truth for release notes (CI workflow change).
+- `README.md` rewritten to describe the v2.x ADBC architecture (Apache Flight SQL ADBC driver, `libadbc_driver_flightsql.dll`, DuckDB-native SQL generator) instead of the v1.x ODBC story.
 
 ### Fixed
 - Pass `CredentialConnectionString` to `Adbc.DataSource` as a record (let-block) instead of a function value, so `username`/`password` actually reach the underlying ADBC driver. Without this, the Apache Flight SQL ADBC driver sent no Authorization header and GizmoSQL rejected metadata calls with "Invalid Authorization Header type! (Unknown; GetObjects(GetCatalogs))".
