@@ -1,6 +1,7 @@
 # Power Query SDK build output
 bin/
 obj/
+staging/
 *.mez
 *.pqx
 

@@ -12,8 +12,15 @@ let
         TableTypes = "BASE TABLE",
         SupportsCatalog = true,
         SupportsSchema = true,
+        // Both must be false for cross-table joins to fold in DirectQuery: Power BI's
+        // source-identity check treats per-query connection-option changes as part of
+        // the data source identity, so declaring the connector "supports" per-query
+        // catalog/schema switching makes each query look like its own source. Mirrors
+        // spiceai/powerbi-connector. The connection-time `adbc.connection.catalog` is
+        // still set from the optional `defaultCatalog` parameter in GizmoSQL.Contents
+        // (one-time, applied to the underlying connection itself, not per-query).
         SupportedConnectionOptions = [
-            adbc.connection.catalog = true,
+            adbc.connection.catalog = false,
             adbc.connection.db_schema = false
         ],
         TypeInfo = Table.SelectColumns(

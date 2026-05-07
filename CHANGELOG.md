@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `BUG_REPORT_ADBC_DIRECTQUERY_FOLD.md` documenting the upstream Microsoft Power BI bug that prevents cross-table query folding in DirectQuery for ADBC-based custom connectors. Filed as [microsoft/vscode-powerquery-sdk#409](https://github.com/microsoft/vscode-powerquery-sdk/issues/409). Symptom: `FoldingFailureException` at `SqlViewOptimizingQueryVisitor.VisitJoinCore` ("different data sources") when two tables in the same DirectQuery model navigate from separate `Source = GizmoSQL.Contents(...)` bindings — even though `Value.Equals` returns `true` between those bindings. Same root cause as [spiceai/powerbi-connector#10](https://github.com/spiceai/powerbi-connector/issues/10). Import mode is unaffected. v1.x ODBC (which uses `Odbc.DataSource` rather than `Adbc.DataSource`) is unaffected.
+
+### Changed
+- Align ADBC connector configuration with the documented Spice.ai recipe: set `adbc.connection.catalog = false` in `FlightSqlAdbcConfig.SupportedConnectionOptions` (previously `true`), add `NativeQueryProperties` (with `EnableFolding = true`) to `GizmoSQL.Publish`, and refactor the connector function to a named identifier (`GizmoSqlConnectionImpl`) rather than an inline lambda. None of these changes individually fixes the cross-table fold bug above, but they bring this connector to the recipe other public ADBC FlightSQL connectors converge on.
+
 ## [v2.0.0] - 2026-05-06
 
 ### Compatibility

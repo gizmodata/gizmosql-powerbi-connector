@@ -1,9 +1,6 @@
 [Version = "2.0.0"]
 section GizmoSQL;
 
-// Diagnostics module for trace logging (disable for release builds)
-EnableTraceOutput = false;
-
 Extension.LoadFunction = (fileName as text) =>
     let
         binary = Extension.Contents(fileName),
@@ -12,6 +9,9 @@ Extension.LoadFunction = (fileName as text) =>
         Expression.Evaluate(asText, #shared);
 
 Extension.LoadExpression = Extension.LoadFunction;
+
+// Diagnostics module for trace logging (disable for release builds)
+EnableTraceOutput = false;
 
 Diagnostics = Extension.LoadFunction("Diagnostics.pqm");
 Diagnostics.LogValue = if EnableTraceOutput then Diagnostics[LogValue] else (prefix, value, optional delayed) => value;
@@ -76,6 +76,13 @@ BuildUri = (server as text, port as number, useEncryption as nullable logical) a
 // Adbc.DataSource expects CredentialConnectionString to evaluate to a record,
 // not a function — pattern matches spiceai/powerbi-connector. Defining this as
 // `() as record => ...` would pass the function itself, leaving auth unset.
+//
+// IMPORTANT: keep this body returning the credential record DIRECTLY. Wrapping
+// the return value (e.g. through Diagnostics.LogValue2) makes it opaque to PBI's
+// data-source-identity hashing, which can break cross-table query folding with
+// "The left and right queries come from different data sources" — DirectQuery
+// joins evaluate each table independently and need both `GizmoSQL.Contents(...)`
+// calls to hash-equate, which requires fully transparent CredentialConnectionString.
 GetCredentialConnectionString =
     let
         Credential = Extension.CurrentCredential(),
@@ -88,8 +95,10 @@ GetCredentialConnectionString =
         else
             error Error.Record("Error", "Unsupported authentication kind");
 
-[DataSource.Kind = "GizmoSQL", Publish = "GizmoSQL.Publish"]
-shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical, optional defaultCatalog as text) as table =>
+// Connector implementation extracted to a NAMED identifier (not an inline lambda).
+// Mirrors spiceai/powerbi-connector — gives PBI's optimizer a stable function-value
+// identity for the data-source-identity hash that powers cross-table fold detection.
+GizmoSqlConnectionImpl = (server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical, optional defaultCatalog as text) as table =>
     let
         Uri = BuildUri(server, port, useEncryption),
         BaseConnectionString = [ uri = Uri ],
@@ -102,21 +111,19 @@ shared GizmoSQL.Contents = Value.ReplaceType((server as text, port as number, op
             if defaultCatalog <> null and defaultCatalog <> "" then
                 Record.AddField(WithTls, "adbc.connection.catalog", defaultCatalog)
             else
-                WithTls,
-        AdbcDataSource = Adbc.DataSource(
+                WithTls
+    in
+        Adbc.DataSource(
             FlightSqlAdbcConfig,
             ConnectionString,
             [
                 SqlGenerator = GizmoSqlGenerator,
                 CredentialConnectionString = GetCredentialConnectionString
             ]
-        )
-    in
-        Diagnostics.LogValue2(
-            "GizmoSQL/Connection",
-            [ Uri = Uri, DefaultCatalog = defaultCatalog ],
-            AdbcDataSource
-        ), GizmoSQL.ContentsType);
+        );
+
+[DataSource.Kind = "GizmoSQL", Publish = "GizmoSQL.Publish"]
+shared GizmoSQL.Contents = Value.ReplaceType(GizmoSqlConnectionImpl, GizmoSQL.ContentsType);
 
 // Data source definition
 GizmoSQL = [
@@ -139,6 +146,16 @@ GizmoSQL.Publish = [
     ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
     LearnMoreUrl = "https://github.com/gizmodata/gizmosql-powerbi-connector",
     SupportsDirectQuery = true,
+    // NativeQueryProperties is officially ODBC-only per Microsoft's docs and was
+    // empirically confirmed to be ignored on the Adbc.DataSource path (a fully populated
+    // 3-level navigationSteps had no effect on the cross-table-join "different data
+    // sources" error in DirectQuery). Kept here as a Spice-style placeholder for parity.
+    NativeQueryProperties = [
+        navigationSteps = {[]},
+        nativeQueryOptions = [
+            EnableFolding = true
+        ]
+    ],
     SourceImage = GizmoSQL.Icons,
     SourceTypeImage = GizmoSQL.Icons
 ];
