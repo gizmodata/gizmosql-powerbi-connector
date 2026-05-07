@@ -10,6 +10,12 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Align ADBC connector configuration with the documented Spice.ai recipe: set `adbc.connection.catalog = false` in `FlightSqlAdbcConfig.SupportedConnectionOptions` (previously `true`), add `NativeQueryProperties` (with `EnableFolding = true`) to `GizmoSQL.Publish`, and refactor the connector function to a named identifier (`GizmoSqlConnectionImpl`) rather than an inline lambda. None of these changes individually fixes the cross-table fold bug above, but they bring this connector to the recipe other public ADBC FlightSQL connectors converge on.
 
+### Added (debug instrumentation)
+- Investigation tooling for surfacing ADBC connector failures inside Power BI Desktop. Off by default; intended for development.
+  - `Diagnostics.pqm` — `IsEnabled` (marker-file check at `C:\Users\Public\gizmosql_pbi_debug.flag`) and `MaskCredentials` helper for redacting `password` / `Authorization` fields out of trace records.
+  - `SqlGenerator.pqm` — `WrapOverrideHandler` infrastructure that wraps every AstVisitor override (`FunctionOverrides`, `BinaryOperatorOverrides`, `UnaryOperatorOverrides`) with rich error reporting (handler name + AST `Kind` + inner exception) when `DebugEnabled = true`. Re-raised as a `GizmoSQL.FoldError` so the Power BI error dialog shows the failing override directly. Also writes `[GizmoSQL.PBI/Override:<name>] FAILED on Kind=<...>` trace entries.
+  - `README.md` — *Debug logging* section with the full development workflow: how to enable PBI Desktop tracing, where the trace files live, and the grep patterns for filtering out `[GizmoSQL.PBI/...]` entries.
+
 ## [v2.0.0] - 2026-05-06
 
 ### Compatibility

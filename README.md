@@ -112,6 +112,55 @@ docker run -p 31337:31337 \
 
 Then connect in Power BI with server `localhost`, port `31337`, username `gizmosql_user`, password `gizmosql_password`.
 
+### Debug logging
+
+When a query fails — especially a DirectQuery join that surfaces as `QueryUserError` — turn on debug mode to capture exactly which fold step broke and (when applicable) which AstVisitor override threw.
+
+**1. Enable the connector's debug mode** by creating a marker file (no rebuild required):
+
+```powershell
+New-Item -Path "C:\Users\Public\gizmosql_pbi_debug.flag" -ItemType File -Force
+```
+
+Remove the file to disable:
+
+```powershell
+Remove-Item -Path "C:\Users\Public\gizmosql_pbi_debug.flag"
+```
+
+(Power Query M custom connectors are sandboxed and cannot read OS environment variables, so a marker file at a non-user-specific path stands in for `GIZMOSQL_DEBUG=1`.)
+
+**2. Enable Power BI Desktop's mashup tracing**: `File` → `Options and settings` → `Options` → `Diagnostics` → check **Enable tracing**, then restart Power BI Desktop.
+
+**3. Reproduce the failing report.** Trace files land in:
+
+```
+%LOCALAPPDATA%\Microsoft\Power BI Desktop\Traces\
+```
+
+**4. Filter for connector entries**:
+
+```powershell
+Select-String -Path "$env:LOCALAPPDATA\Microsoft\Power BI Desktop\Traces\*.log" -Pattern "GizmoSQL.PBI" |
+    Select-Object -ExpandProperty Line
+```
+
+What you'll see:
+- `[GizmoSQL.PBI/Connection]` — URI, default catalog, debug status (logged once per connection).
+- `[GizmoSQL.PBI/Credentials]` — auth kind and the connection-string record passed to ADBC, with `password` / `Authorization` masked.
+- `[GizmoSQL.PBI/Adbc.DataSource]` — wraps the call into Power BI's built-in ADBC handler; only logs on failure (Power Query owns the SQL synthesis inside this call, so the SQL string itself is not visible from M).
+- `[GizmoSQL.PBI/Override:<name>] FAILED on Kind=<...>` — a SqlGenerator override threw while folding. The trace record has the full AST node and the inner exception. The same information is also re-raised as a `GizmoSQL.FoldError` so the Power BI Desktop error dialog shows the handler name and AST kind instead of just `QueryUserError`.
+
+**Tip — see the folded SQL up to the breakpoint:** in **Power Query Editor**, right-click any step → **View Native Query**. Power BI shows the SQL it has folded so far. If the option is grayed out at a particular step (e.g. the join), that step is what broke folding.
+
+To capture queries that **do** reach the server, run the GizmoSQL server with `--print-queries`:
+
+```bash
+gizmosql_server --username joe --password joe --print-queries --auth-log-level WARN --session-log-level WARN
+```
+
+A fold failure on the connector side means **no SQL reaches the server at all** — the connector log is where to look in that case.
+
 ## Architecture
 
 ```

@@ -10,13 +10,21 @@ Extension.LoadFunction = (fileName as text) =>
 
 Extension.LoadExpression = Extension.LoadFunction;
 
-// Diagnostics module for trace logging (disable for release builds)
+Diagnostics = Extension.LoadFunction("Diagnostics.pqm");
+
+// Debug tracing flag. Kept off in the data-source path because turning it on (true)
+// makes Diagnostics.LogValue2 a real opaque function call — which appears to break
+// Power BI's data-source-identity hashing when GizmoSQL.Contents results are wrapped
+// (cross-table joins fail with "The left and right queries come from different data
+// sources"). The AstVisitor wrap inside SqlGenerator.pqm sits in a different code
+// path (passed as an option to Adbc.DataSource) and is gated by its own DebugEnabled
+// flag; that one is safe to flip.
 EnableTraceOutput = false;
 
-Diagnostics = Extension.LoadFunction("Diagnostics.pqm");
 Diagnostics.LogValue = if EnableTraceOutput then Diagnostics[LogValue] else (prefix, value, optional delayed) => value;
 Diagnostics.LogValue2 = if EnableTraceOutput then Diagnostics[LogValue2] else (prefix, value, result, optional delayed) => result;
 Diagnostics.LogFailure = if EnableTraceOutput then Diagnostics[LogFailure] else (text, function) => function();
+Diagnostics.MaskCredentials = Diagnostics[MaskCredentials];
 
 GizmoSqlGenerator = Extension.LoadExpression("SqlGenerator.pqm");
 FlightSqlAdbcConfig = Extension.LoadExpression("FlightSqlAdbcConfig.pqm");

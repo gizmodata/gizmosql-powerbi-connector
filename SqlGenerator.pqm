@@ -71,9 +71,81 @@ let
     SqlGenerator = SqlGeneratorHelpers[MergeOverrides]("Sql92",Override,false),
     currentAstVisitorRecord = SqlGenerator[AstVisitor],
 
+    // Diagnostic wrapping: when the debug flag file is present, every override
+    // handler is wrapped to (1) re-throw with handler name + AST node attached
+    // so the Power BI error dialog shows where folding broke, and (2) emit a
+    // trace entry tagged "[GizmoSQL.PBI/Override:<name>]" for the mashup logs.
+    // Without wrapping, a thrown override surfaces as "QueryUserError" with no
+    // way to identify the offending handler — particularly painful in DirectQuery
+    // where unfoldable joins error out instead of falling back to client-side.
+    Diagnostics = Extension.LoadExpression("Diagnostics.pqm"),
+    // Off for now — the AstVisitor wrap helped surface override-level fold failures
+    // but the current join error happens at VisitJoinCore (engine-level, before our
+    // overrides are called). Re-enable when chasing override-level failures.
+    DebugEnabled = false,
+    WrapOverrideHandler = (handlerName as text, fn as function) as function =>
+        Function.From(
+            Value.Type(fn),
+            (args) =>
+                let
+                    invoked = try Function.Invoke(fn, args)
+                in
+                    if invoked[HasError] then
+                        let
+                            // Best-effort grab of the AST being folded — handlers in the override records
+                            // typically receive (visitor, rowType, groupKeys, ast); the AST is the last arg.
+                            ast = try args{List.Count(args) - 1} otherwise null,
+                            astKind = try ast[Kind] otherwise "<unknown>",
+                            inner = invoked[Error],
+                            innerMsg = try inner[Message] otherwise "<no message>",
+                            errRecord = Error.Record(
+                                "GizmoSQL.FoldError",
+                                "Override '" & handlerName & "' failed while folding AST node Kind='" & astKind & "': " & innerMsg,
+                                [ Handler = handlerName, AstKind = astKind, Ast = ast, InnerError = inner ]
+                            )
+                        in
+                            // Mirrors Diagnostics.LogFailure: pass a thunk as `result`, invoke it after
+                            // Trace returns. This both forces evaluation of the trace (M is lazy) and
+                            // delays the throw until logging is flushed.
+                            Diagnostics[LogValue2](
+                                "[GizmoSQL.PBI/Override:" & handlerName & "] FAILED on Kind=" & astKind,
+                                [ Handler = handlerName, AstKind = astKind, Ast = ast, InnerError = inner ],
+                                () => error errRecord,
+                                true
+                            )()
+                    else
+                        invoked[Value]
+        ),
+    // Only wrap fields whose value is a function. Sql92's FunctionOverrides also accepts
+    // (a) plain text rename values like Date.Year = "year" and (b) [Name=..., Type=...]
+    // record shorthands — both pass straight through to the SQL emitter and have no body
+    // we could meaningfully wrap. Trying to Function.From a non-function blows up with
+    // "we cannot convert the value 'year' to type Function" at fold time.
+    WrapOverrideRecord = (rec as record) as record =>
+        if Record.FieldCount(rec) = 0 then rec
+        else Record.FromList(
+            List.Transform(
+                Record.FieldNames(rec),
+                (h) =>
+                    let
+                        v = Record.Field(rec, h)
+                    in
+                        if Value.Is(v, type function) then WrapOverrideHandler(h, v) else v
+            ),
+            Record.FieldNames(rec)
+        ),
+    WrappedAstVisitor =
+        if DebugEnabled then
+            currentAstVisitorRecord & [
+                FunctionOverrides = WrapOverrideRecord(currentAstVisitorRecord[FunctionOverrides]),
+                BinaryOperatorOverrides = WrapOverrideRecord(currentAstVisitorRecord[BinaryOperatorOverrides]),
+                UnaryOperatorOverrides = WrapOverrideRecord(currentAstVisitorRecord[UnaryOperatorOverrides])
+            ]
+        else
+            currentAstVisitorRecord,
+
     addToAstVisitor = [
-        AstVisitor = currentAstVisitorRecord & [
-        ]
+        AstVisitor = WrappedAstVisitor
     ],
 
 // Extension library functions
