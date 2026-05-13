@@ -423,6 +423,24 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history needed to check if tag is reachable from main
+
+      - name: Determine release type (stable vs preview)
+        id: release-type
+        run: |
+          # A tag is "stable" when its commit is reachable from origin/main; otherwise "preview".
+          # This lets us tag a non-main branch (e.g. adbc-flight-sql) and ship a preview release.
+          git fetch origin main:refs/remotes/origin/main 2>/dev/null || git fetch origin main
+          if git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main 2>/dev/null; then
+            echo "type=stable" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag $GITHUB_REF_NAME is reachable from main — stable release"
+          else
+            echo "type=preview" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tag $GITHUB_REF_NAME is NOT reachable from main — preview release"
+          fi
 
       - name: Download .mez artifact
         uses: actions/download-artifact@v4
@@ -458,6 +476,15 @@ jobs:
             p && /^## \[/ { exit }
             p { print }
           ' CHANGELOG.md)
+          # Preview releases (e.g. v2.0.0-preview1) have no version-specific CHANGELOG section yet.
+          # Fall back to the [Unreleased] section so the release page still shows in-progress notes.
+          if [ -z "$notes" ] && [ "${{ steps.release-type.outputs.type }}" = "preview" ]; then
+            notes=$(awk '
+              /^## \[Unreleased\]/ { p=1; next }
+              p && /^## \[/ { exit }
+              p { print }
+            ' CHANGELOG.md)
+          fi
           # Trim leading/trailing blank lines so the rendered release page is clean.
           notes=$(printf '%s\n' "$notes" | awk '
             NF { found=1 }
@@ -465,6 +492,9 @@ jobs:
             END { sub(/\n+$/, "", buf); print buf }
           ')
           {
+            if [ "${{ steps.release-type.outputs.type }}" = "preview" ]; then
+              printf '> :warning: **Preview release** — this tag is not on `main`. Intended for testing; not recommended for production.\n\n'
+            fi
             if [ -n "$notes" ]; then
               printf '%s\n' "$notes"
             else
@@ -479,8 +509,14 @@ jobs:
         run: |
           # --notes-file provides the curated CHANGELOG section as the body;
           # --generate-notes appends auto-generated PR/commit list below it.
+          # --prerelease is passed when the tag isn't reachable from main (preview releases).
+          prerelease_flag=""
+          if [ "${{ steps.release-type.outputs.prerelease }}" = "true" ]; then
+            prerelease_flag="--prerelease"
+          fi
           gh release create "${{ github.ref_name }}" \
             --title "${{ github.ref_name }}" \
+            $prerelease_flag \
             --notes-file /tmp/release-notes.md \
             --generate-notes \
             --notes-start-tag "$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo '')" \
