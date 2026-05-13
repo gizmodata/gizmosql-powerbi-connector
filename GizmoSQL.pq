@@ -1,4 +1,4 @@
-[Version = "2.0.0"]
+[Version = "2.1.0"]
 section GizmoSQL;
 
 Extension.LoadFunction = (fileName as text) =>
@@ -12,13 +12,9 @@ Extension.LoadExpression = Extension.LoadFunction;
 
 Diagnostics = Extension.LoadFunction("Diagnostics.pqm");
 
-// Debug tracing flag. Kept off in the data-source path because turning it on (true)
-// makes Diagnostics.LogValue2 a real opaque function call — which appears to break
-// Power BI's data-source-identity hashing when GizmoSQL.Contents results are wrapped
-// (cross-table joins fail with "The left and right queries come from different data
-// sources"). The AstVisitor wrap inside SqlGenerator.pqm sits in a different code
-// path (passed as an option to Adbc.DataSource) and is gated by its own DebugEnabled
-// flag; that one is safe to flip.
+// Debug tracing flag. Kept off in the data-source path: turning it on (true) makes
+// Diagnostics.LogValue2 a real opaque function call, which can break PBI's
+// data-source-identity hashing when GizmoSQL.Contents results are wrapped.
 EnableTraceOutput = false;
 
 Diagnostics.LogValue = if EnableTraceOutput then Diagnostics[LogValue] else (prefix, value, optional delayed) => value;
@@ -29,21 +25,43 @@ Diagnostics.MaskCredentials = Diagnostics[MaskCredentials];
 GizmoSqlGenerator = Extension.LoadExpression("SqlGenerator.pqm");
 FlightSqlAdbcConfig = Extension.LoadExpression("FlightSqlAdbcConfig.pqm");
 
-// `Adbc.DataSource` / `Adbc.Query` are available in current Power BI Desktop releases.
-// Wrap with try/otherwise so build/load on older hosts surfaces a clear error.
+// Legacy ADBC navigator (kept — only path Adbc.DataSource currently supports for a
+// foldable navigator in PBI Desktop 2.154 / Mashup 2.154.528). Per mattmasson on
+// microsoft/vscode-powerquery-sdk#409 the long-term path is `Adbc.Connection` +
+// `SqlView.Generator(uniqueIdentifier, ...)` for source-identity-aware joins, but
+// that pipeline isn't fully exposed yet — `Adbc.DataSource` options only accept
+// {ClientConnectionPooling, CreateNavigationProperties, CredentialConnectionString,
+// SqlGenerator}, and the v1 SqlGenerator record rejects extra fields like SqlView/
+// UniqueIdentifier. See connector README for the full investigation log.
 Adbc.DataSource =
     try
         #shared[Adbc.DataSource]
     otherwise
-        (driver, connectionString, options) =>
+        (driver, connectionProperties, options) =>
             error Error.Record("Expression.Error", "Adbc.DataSource is not available in this Power BI Desktop version. Update to a recent build (Aug 2025+).");
+
+// New ADBC primitives — used here as a side-effect warmup so the AdditionalCacheKey
+// gets registered on the connection-pool entry that Adbc.DataSource opens. If a future
+// PBI build wires `SqlView.Generator` into the navigator path, switch over by passing
+// the resulting view function via whatever option name lands.
+Adbc.Connection =
+    try
+        #shared[Adbc.Connection]
+    otherwise
+        (driver, databaseProperties, connectionProperties, optional options) => null;
 
 Adbc.Query =
     try
         #shared[Adbc.Query]
     otherwise
-        (driver, connectionString, query) =>
+        (driver, connectionProperties, query, optional options) =>
             error Error.Record("Expression.Error", "Adbc.Query is not available in this Power BI Desktop version.");
+
+SqlView.Generator =
+    try
+        #shared[SqlView.Generator]
+    otherwise
+        (uniqueIdentifier, sqlGenerator, getData) => null;
 
 // "Get Data" dialog parameters — kept to match the v1.x ODBC connector
 GizmoSQL.ContentsType = type function (
@@ -81,17 +99,10 @@ BuildUri = (server as text, port as number, useEncryption as nullable logical) a
     in
         scheme & "://" & server & ":" & Number.ToText(port);
 
-// Adbc.DataSource expects CredentialConnectionString to evaluate to a record,
-// not a function — pattern matches spiceai/powerbi-connector. Defining this as
-// `() as record => ...` would pass the function itself, leaving auth unset.
-//
-// IMPORTANT: keep this body returning the credential record DIRECTLY. Wrapping
-// the return value (e.g. through Diagnostics.LogValue2) makes it opaque to PBI's
-// data-source-identity hashing, which can break cross-table query folding with
-// "The left and right queries come from different data sources" — DirectQuery
-// joins evaluate each table independently and need both `GizmoSQL.Contents(...)`
-// calls to hash-equate, which requires fully transparent CredentialConnectionString.
-GetCredentialConnectionString =
+// Read credentials as a plain record. Used both as the Adbc.DataSource
+// `CredentialConnectionString` option (so PBI keeps creds out of the URI) and as the
+// `connectionProperties` arg to Adbc.Connection during the pool warmup.
+GetCredentialProperties = () as record =>
     let
         Credential = Extension.CurrentCredential(),
         kind = Credential[AuthenticationKind]?
@@ -103,12 +114,22 @@ GetCredentialConnectionString =
         else
             error Error.Record("Error", "Unsupported authentication kind");
 
-// Connector implementation extracted to a NAMED identifier (not an inline lambda).
-// Mirrors spiceai/powerbi-connector — gives PBI's optimizer a stable function-value
-// identity for the data-source-identity hash that powers cross-table fold detection.
+// Source-identity key. Two `GizmoSQL.Contents(...)` calls with the same endpoint
+// produce byte-identical strings here. Credentials are deliberately NOT mixed in:
+// the same physical endpoint accessed by two callers with the same auth resolves
+// to one logical source. Per mattmasson on microsoft/vscode-powerquery-sdk#409,
+// this is the value `SqlView.Generator` would consume when the new API path lands.
+BuildUniqueId = (server as text, port as number, useEncryption as nullable logical, defaultCatalog as nullable text) as text =>
+    let
+        scheme = if useEncryption = false then "grpc" else "grpc+tls",
+        catalogPart = if defaultCatalog <> null and defaultCatalog <> "" then "/" & defaultCatalog else ""
+    in
+        "gizmosql://" & scheme & "://" & Text.Lower(server) & ":" & Number.ToText(port) & catalogPart;
+
 GizmoSqlConnectionImpl = (server as text, port as number, optional useEncryption as logical, optional disableCertificateVerification as logical, optional defaultCatalog as text) as table =>
     let
         Uri = BuildUri(server, port, useEncryption),
+
         BaseConnectionString = [ uri = Uri ],
         WithTls =
             if disableCertificateVerification = true then
@@ -119,16 +140,35 @@ GizmoSqlConnectionImpl = (server as text, port as number, optional useEncryption
             if defaultCatalog <> null and defaultCatalog <> "" then
                 Record.AddField(WithTls, "adbc.connection.catalog", defaultCatalog)
             else
-                WithTls
-    in
-        Adbc.DataSource(
+                WithTls,
+
+        CredentialProperties = GetCredentialProperties(),
+        UniqueId = BuildUniqueId(server, port, useEncryption, defaultCatalog),
+
+        // Pre-register the ADBC connection pool entry under our stable UniqueId so
+        // PBI's source-identity layer has something to hash-equate when two
+        // GizmoSQL.Contents calls reference the same endpoint (per mattmasson on #409).
+        // The handle isn't used directly — Adbc.DataSource opens through the same pool.
+        _PoolWarmup = Adbc.Connection(
             FlightSqlAdbcConfig,
             ConnectionString,
-            [
-                SqlGenerator = GizmoSqlGenerator,
-                CredentialConnectionString = GetCredentialConnectionString
-            ]
-        );
+            CredentialProperties,
+            [ AdditionalCacheKey = UniqueId ]
+        )
+    in
+        // Force evaluation of _PoolWarmup so M doesn't elide it. The conditional is a
+        // no-op control flow — either branch returns the navigator.
+        if _PoolWarmup = null or _PoolWarmup <> null then
+            Adbc.DataSource(
+                FlightSqlAdbcConfig,
+                ConnectionString,
+                [
+                    SqlGenerator = GizmoSqlGenerator,
+                    CredentialConnectionString = CredentialProperties
+                ]
+            )
+        else
+            error "unreachable";
 
 [DataSource.Kind = "GizmoSQL", Publish = "GizmoSQL.Publish"]
 shared GizmoSQL.Contents = Value.ReplaceType(GizmoSqlConnectionImpl, GizmoSQL.ContentsType);
@@ -154,10 +194,6 @@ GizmoSQL.Publish = [
     ButtonText = { Extension.LoadString("ButtonTitle"), Extension.LoadString("ButtonHelp") },
     LearnMoreUrl = "https://github.com/gizmodata/gizmosql-powerbi-connector",
     SupportsDirectQuery = true,
-    // NativeQueryProperties is officially ODBC-only per Microsoft's docs and was
-    // empirically confirmed to be ignored on the Adbc.DataSource path (a fully populated
-    // 3-level navigationSteps had no effect on the cross-table-join "different data
-    // sources" error in DirectQuery). Kept here as a Spice-style placeholder for parity.
     NativeQueryProperties = [
         navigationSteps = {[]},
         nativeQueryOptions = [
