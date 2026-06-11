@@ -28,6 +28,13 @@ let
         "emp exposes emp_id, dept_id, ename",
         List.ContainsAll(Table.ColumnNames(Emp), {"emp_id", "dept_id", "ename"})
     ),
+    // Spike: the implicit nested-join variant must NOT leak a "_rel_*" nav
+    // column into emp — only relationship metadata should remain.
+    checkNoLeakedNav = Assert(
+        "emp keeps exactly its 3 base columns (no leaked _rel_ nav column)",
+        Table.ColumnCount(Emp) = 3
+            and not List.AnyTrue(List.Transform(Table.ColumnNames(Emp), each Text.StartsWith(_, "_rel_")))
+    ),
 
     // --- Primary keys are declared (the 'one' side a relationship needs) ---
     deptKeys = Table.Keys(Dept),
@@ -41,12 +48,7 @@ let
         List.AnyTrue(List.Transform(empKeys, each [Primary] = true and [Columns] = {"emp_id"}))
     ),
 
-    // --- TODO(relationships): once the connector emits the emp.dept_id ->
-    // dept.dept_id foreign key (e.g. via Table.NestedJoin nav properties),
-    // assert the relationship metadata here. PQTest still can't confirm it lands
-    // in the model, but it can confirm the connector emits it. ---
-
-    allChecks = {checkDeptRows, checkEmpRows, checkEmpCols, checkDeptPk, checkEmpPk},
+    allChecks = {checkDeptRows, checkEmpRows, checkEmpCols, checkNoLeakedNav, checkDeptPk, checkEmpPk},
     Result = Table.FromRecords({[
         Test = "Relationships",
         DeptRows = Table.RowCount(Dept),

@@ -270,13 +270,64 @@ GetTables = (context, catalog, schema) =>
     in
         withFolding;
 
-GetTable = (context, catalog, schema, table) =>
+// The bare SqlView table (column types + primary key), with no relationship
+// navigation properties. Relationship targets use this to avoid recursion.
+GetBaseTable = (context, catalog, schema, table) =>
     let
         tableType = GetTableType(context[ExecuteQuery], catalog, schema, table),
         tableReference = [Kind = "FromTable", Table = [Catalog = catalog, Schema = schema, Name = table]],
         withSqlView = context[SqlGenerator](tableReference, tableType, [])
     in
         withSqlView;
+
+// EXPERIMENTAL (spike): surface foreign-key relationships so Power BI's model
+// auto-detects them. M has no declarative relationship API; the only supported
+// hand-rolled mechanism is Table.NestedJoin (Matt Masson's deleted
+// DataConnectors/samples/Relationships). We use the "implicit" variant — join
+// the FK to the referenced table's PK, then drop the nav column, leaving only
+// the relationship metadata in the table type. Whether that metadata survives
+// the SqlView layer (and whether it harms DirectQuery fold) is the open
+// question this spike answers in Power BI Desktop.
+GetTable = (context, catalog, schema, table) =>
+    let
+        baseTable = GetBaseTable(context, catalog, schema, table),
+        foreignKeys = GetForeignKeys(context[ExecuteQuery], catalog, schema, table),
+        withRelationships = List.Accumulate(foreignKeys, baseTable, (state, fk) =>
+            let
+                // DuckDB foreign keys are within-schema, so the referenced table
+                // shares this catalog + schema.
+                refTable = GetBaseTable(context, catalog, schema, fk[RefTable]),
+                // Unique, collision-proof nav-property name (removed below).
+                navName = "_rel_" & Text.Combine(fk[FKColumns], "_") & "_" & fk[RefTable],
+                joined = Table.NestedJoin(state, fk[FKColumns], refTable, fk[RefColumns], navName, JoinKind.LeftOuter),
+                trimmed = Table.RemoveColumns(joined, {navName})
+            in
+                trimmed)
+    in
+        withRelationships;
+
+// Read foreign keys for a table from DuckDB's constraint catalog. Columns are
+// returned comma-joined (scalar varchar) to avoid marshalling array columns
+// over Flight SQL; split back into lists here.
+GetForeignKeys = (exec, catalog, schema, table) =>
+    let
+        command = "SELECT array_to_string(constraint_column_names, ',') AS fk_columns, "
+            & "referenced_table AS ref_table, "
+            & "array_to_string(referenced_column_names, ',') AS ref_columns "
+            & "FROM duckdb_constraints() "
+            & "WHERE constraint_type = 'FOREIGN KEY' "
+            & "AND database_name = " & EscapeStringLiteral(catalog) & " "
+            & "AND schema_name = " & EscapeStringLiteral(schema) & " "
+            & "AND table_name = " & EscapeStringLiteral(table),
+        result = try exec(command, [IsMetadata = true]) otherwise #table({"fk_columns", "ref_table", "ref_columns"}, {}),
+        rows = Table.ToRecords(result),
+        fks = List.Transform(rows, each [
+            FKColumns = Text.Split([fk_columns], ","),
+            RefTable = [ref_table],
+            RefColumns = Text.Split([ref_columns], ",")
+        ])
+    in
+        fks;
 
 FoldNavigationStep = (selector, loader, kind, optional immediate) =>
     let
