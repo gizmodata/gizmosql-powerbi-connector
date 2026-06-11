@@ -1,6 +1,7 @@
 # Power Query SDK build output
 bin/
 obj/
+staging/
 *.mez
 *.pqx
 
@@ -8,6 +9,10 @@ obj/
 .vs/
 *.user
 *.suo
+.idea/
+
+# Scratch files
+test.txt
 
 # OS
 .DS_Store

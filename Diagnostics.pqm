@@ -1,4 +1,27 @@
 let
+    // Marker file that toggles debug tracing without rebuilding the .mez/.pqx.
+    // Create with PowerShell:  New-Item -Path "C:\Users\Public\gizmosql_pbi_debug.flag" -ItemType File -Force
+    // Remove with PowerShell:  Remove-Item -Path "C:\Users\Public\gizmosql_pbi_debug.flag"
+    // Power Query M custom connectors cannot read OS environment variables (sandbox), so we use a
+    // marker file at a writable, non-user-specific path to mimic GIZMOSQL_DEBUG=1 semantics.
+    Diagnostics.DebugFlagPath = "C:\Users\Public\gizmosql_pbi_debug.flag",
+    Diagnostics.IsEnabled = () as logical =>
+        try (let _ = File.Contents(Diagnostics.DebugFlagPath) in true) otherwise false,
+
+    // Mask the password field of a CredentialConnectionString record so it never lands in traces.
+    Diagnostics.MaskCredentials = (value) =>
+        if value is record then
+            Record.TransformFields(
+                value,
+                List.Transform(
+                    List.Select(Record.FieldNames(value), each Text.Lower(_) = "password" or Text.Contains(Text.Lower(_), "authorization")),
+                    (n) => {n, each "***REDACTED***"}
+                ),
+                MissingField.Ignore
+            )
+        else
+            value,
+
     Diagnostics.LogValue = (prefix, value, optional delayed) =>
         Diagnostics.Trace(
             TraceLevel.Information,
@@ -218,5 +241,8 @@ in
         LogFailure = Diagnostics.LogFailure,
         WrapFunctionResult = Diagnostics.WrapFunctionResult,
         WrapHandlers = Diagnostics.WrapHandlers,
-        ValueToText = Diagnostics.ValueToText
+        ValueToText = Diagnostics.ValueToText,
+        IsEnabled = Diagnostics.IsEnabled,
+        DebugFlagPath = Diagnostics.DebugFlagPath,
+        MaskCredentials = Diagnostics.MaskCredentials
     ]
