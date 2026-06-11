@@ -48,7 +48,7 @@ The connector uses the newer ADBC extensibility surface instead of `Adbc.DataSou
 The connector supports three auth kinds via `Extension.CurrentCredential()`, mapped to Flight SQL ADBC database options:
 - `UsernamePassword` → `username` / `password`
 - `Key` → `adbc.flight.sql.authorization_header = "Bearer <token>"`
-- `OAuth` → `adbc.flight.sql.authorization_header = "Bearer <access_token>"`
+- `OAuth` → `username = "token"` / `password = <access_token>` — the OAuth poll returns the IdP's raw ID token, which must go through the Flight handshake (same convention as JDBC) so the server can verify it via JWKS and issue its own session JWT; sending it as a Bearer header fails with "invalid token issuer"
 
 OAuth is implemented entirely in M (no driver involvement) against GizmoSQL Enterprise's server-side OAuth: `StartLogin` calls `GET /oauth/initiate` (on `--oauth-port`, default `31339`) and hands `auth_url` to Power BI's embedded browser with `CallbackUri = <base>/oauth/callback`; when the IdP redirects there, `FinishLogin` replays the callback request (in case the browser was closed before the server processed the code exchange) and polls `GET /oauth/token/{session_uuid}` (`IsRetry = true` to bypass the M request cache; `Function.InvokeAfter` between attempts) until `status = "complete"`. Caveats: `Web.Contents` cannot skip TLS verification, so the OAuth endpoint's cert must be client-trusted; no refresh token, so expired JWTs require interactive re-auth (scheduled refresh on a gateway will prompt).
 

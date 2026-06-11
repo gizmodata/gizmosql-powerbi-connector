@@ -98,7 +98,14 @@ GetCredentialProperties = () as record =>
         else if kind = "Key" then
             [ #"adbc.flight.sql.authorization_header" = "Bearer " & Credential[Key] ]
         else if kind = "OAuth" then
-            [ #"adbc.flight.sql.authorization_header" = "Bearer " & Credential[access_token] ]
+            // The OAuth poll returns the IdP's raw ID token, not a GizmoSQL
+            // session JWT — sending it as a Bearer header fails with "invalid
+            // token issuer". Present it through the Flight handshake instead
+            // (username "token", JWT as password — same convention as JDBC and
+            // gizmosql-ui): the server verifies it via JWKS
+            // (VerifyAndDecodeBootstrapToken) and issues its own session JWT
+            // for subsequent calls.
+            [ username = "token", password = Credential[access_token] ]
         else
             error Error.Record("Error", "Unsupported authentication kind");
 
@@ -428,9 +435,12 @@ GetPrimaryKeys = (exec, catalog, schema, table) =>
 // --- OAuth (browser SSO) ---
 // GizmoSQL Enterprise server-side OAuth: GET /oauth/initiate returns
 // { session_uuid, auth_url }; the user signs in at auth_url; the IdP redirects
-// to the server's /oauth/callback, which exchanges the authorization code and
-// issues a session JWT; GET /oauth/token/{session_uuid} returns
-// { status: pending | complete | error | not_found, token? }.
+// to the server's /oauth/callback, which exchanges the authorization code for
+// the IdP's ID token; GET /oauth/token/{session_uuid} returns
+// { status: pending | complete | error | not_found, token? } where token is
+// that raw ID token. The connector then presents it through the Flight
+// handshake (username "token") and the server issues its session JWT — see
+// GetCredentialProperties.
 // The OAuth HTTP endpoint listens on --oauth-port (default 31339) on the same
 // host as the Flight SQL endpoint. Note: Web.Contents cannot skip TLS
 // verification, so the OAuth endpoint's certificate must be trusted by the
