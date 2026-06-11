@@ -126,7 +126,10 @@ jobs:
       - name: Start GizmoSQL server
         shell: pwsh
         run: |
-          $initSql = "CREATE TABLE test_data (id INTEGER, name VARCHAR, value DOUBLE); INSERT INTO test_data VALUES (1, 'alice', 3.14), (2, 'bob', 2.72), (3, 'charlie', 1.41);"
+          # test_data drives the folding/type tests. dept + emp (emp.dept_id
+          # REFERENCES dept) give a primary-key/foreign-key pair for the
+          # Relationships test and for manual relationship checks in Power BI.
+          $initSql = "CREATE TABLE test_data (id INTEGER, name VARCHAR, value DOUBLE); INSERT INTO test_data VALUES (1, 'alice', 3.14), (2, 'bob', 2.72), (3, 'charlie', 1.41); CREATE TABLE dept (dept_id INTEGER PRIMARY KEY, dname VARCHAR NOT NULL); CREATE TABLE emp (emp_id INTEGER PRIMARY KEY, dept_id INTEGER REFERENCES dept(dept_id), ename VARCHAR); INSERT INTO dept VALUES (1, 'Accounting'), (2, 'HR'); INSERT INTO emp VALUES (10, 1, 'Phil'), (20, 2, 'Scharlene');"
 
           $server = Start-Process -FilePath $env:GIZMOSQL_SERVER `
               -ArgumentList "--password gizmosql_password --print-queries --init-sql-commands `"$initSql`"" `
