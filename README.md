@@ -87,6 +87,17 @@ The connector declares GizmoSQL's SQL capabilities so Power BI can fold transfor
 
 To verify query folding, right-click a step in the Power Query Editor and select **View Native Query**.
 
+## Relationships
+
+Unlike the v1.x ODBC connector, the v2.x ADBC connector does **not** auto-create foreign-key relationships in the model. Automatic relationship import is a built-in feature of Power BI's native `Odbc.DataSource` handler — it reads the driver's `SQLForeignKeys` catalog function and mirrors the relationships in for you. The v2.x connector instead uses a hand-rolled ADBC navigator (required to make DirectQuery cross-table joins fold — see [#2](https://github.com/gizmodata/gizmosql-powerbi-connector/issues/2)), and Power Query exposes no API for a custom connector to declare foreign keys. The connector does declare each table's **primary key**, which is what relationship detection needs on the "one" side.
+
+Create relationships with Power BI Desktop's built-in detection, which works at the model layer regardless of connector:
+
+- **On load:** *File > Options and settings > Options > Data Load* → enable **"Autodetect new relationships after data is loaded."**
+- **On demand:** *Modeling > Manage relationships > Autodetect*, or draw one manually in **Model view** by dragging the foreign-key column onto the referenced primary-key column.
+
+Autodetect matches on column name plus cardinality, so identically-named keys with a primary key on the referenced side (e.g. `emp.dept_id` → `dept.dept_id`) are found reliably.
+
 ## Development
 
 ### Building locally
