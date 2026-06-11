@@ -1,5 +1,7 @@
 # `Adbc.DataSource`: DirectQuery cross-table fold fails with "different data sources" despite `Value.Equals` returning `true` for identical Source bindings
 
+> **Status (2026-06-11):** addressed on this branch by reworking the connector onto the newer experimental `Adbc.Connection` + `SqlView.Generator` APIs, whose unique-identifier argument carries the data-source identity explicitly (per @mattmasson's guidance on the upstream issue). This document is kept as the record of the `Adbc.DataSource` behavior, which remains unfixed upstream.
+
 ## TL;DR
 
 In a Power Query M custom connector that wraps `Adbc.DataSource(...)`, two table expressions that each begin with their own `Source = MyConnector.Contents(...)` call (with byte-identical arguments) — exactly the M code shape that Power BI Desktop generates when a user picks two tables from the navigator into a DirectQuery model — fail to fold any cross-table join with:

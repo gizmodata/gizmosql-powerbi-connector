@@ -5,7 +5,8 @@ A Power Query custom connector (`.pqx`) that connects [Power BI Desktop](https:/
 ## Requirements
 
 - **GizmoSQL server `≥ v1.23.0`** for the v2.x connector. v1.23.0 is the first release that emits `ARROW:FLIGHT:SQL:TYPE_NAME` field metadata on `GetColumns` responses; without it, Power BI surfaces "Unable to understand the type for column" the moment you click into a table in the Navigator. Connection and table-tree navigation will still succeed against older servers, so the failure is visible but localized — upgrade the server to resolve.
-- **Power BI Desktop August 2025+** for the bundled `Adbc.DataSource` M function used by this connector.
+- **A recent Power BI Desktop build** for the bundled `Adbc.Connection` / `SqlView.Generator` M functions used by this connector (the newer — still experimental — ADBC extensibility surface, which is what enables cross-table join folding in DirectQuery).
+- **GizmoSQL Enterprise** (server started with `--oauth-*` flags) if you want OAuth browser SSO; username/password and bearer-token auth work on all editions.
 
 ## Features
 
@@ -14,7 +15,7 @@ A Power Query custom connector (`.pqx`) that connects [Power BI Desktop](https:/
 - **Hierarchical navigation** — browse databases > schemas > tables in the Navigator pane
 - **Query folding** — Power BI pushes filters, joins, and aggregations down as SQL (`LIMIT`/`OFFSET`, `CAST`, SQL-92)
 - **DuckDB-native SQL generator** — emits `date_trunc`, `date_diff`, `to_<unit>(n)` interval functions, `epoch_us`, etc., matching GizmoSQL's DuckDB dialect
-- **Authentication** — username/password (Basic) or bearer-token (Key)
+- **Authentication** — username/password (Basic), bearer-token (Key), or OAuth browser SSO (GizmoSQL Enterprise)
 - **Signed connector** — `.pqx` is code-signed for integrity verification
 
 ## Installation
@@ -55,9 +56,8 @@ No security setting changes required — the installer works with Power BI's def
 4. Choose an authentication method:
    - **Username/Password**: enter your GizmoSQL credentials
    - **Key**: enter a bearer token (JWT)
+   - **OAuth (Browser)**: sign in with your identity provider via the embedded browser (requires GizmoSQL Enterprise with server-side OAuth configured)
 5. Click **Connect** and browse the Navigator tree
-
-> **OAuth (browser-flow SSO)** was supported in v1.x via the GizmoSQL ODBC driver's internal `/oauth/initiate` + poll handshake. The v2.x ADBC driver path doesn't have that hook yet; OAuth will return once a GizmoSQL-specific Go ADBC driver (vendoring `apache/arrow-adbc/go/adbc/driver/flightsql` + GizmoSQL's external-auth flow) ships.
 
 ## Authentication Methods
 
@@ -65,6 +65,7 @@ No security setting changes required — the installer works with Power BI's def
 |--------|------------------------|----------|
 | Username/Password (Basic) | `username`, `password` | Standard database credentials; the Apache Flight SQL ADBC driver handshakes to obtain a bearer token from the server |
 | Key (Bearer Token) | `adbc.flight.sql.authorization_header = "Bearer <jwt>"` | Direct bearer/JWT auth (e.g., a token obtained out-of-band from your IdP or via a separate CLI tool) |
+| OAuth (Browser) | `adbc.flight.sql.authorization_header = "Bearer <jwt>"` (token obtained by the connector) | Browser-flow SSO against [GizmoSQL Enterprise server-side OAuth](https://github.com/gizmodata/gizmosql/blob/main/docs/oauth_sso_setup.md): the connector calls `/oauth/initiate`, the embedded browser signs in at the IdP, and the connector polls `/oauth/token/{session}` for the session JWT. Assumes the OAuth endpoint on `--oauth-port` `31339` (default). The OAuth endpoint's TLS certificate must be trusted by the client machine — `Web.Contents` cannot skip certificate verification |
 
 ## DirectQuery
 
@@ -93,7 +94,7 @@ To verify query folding, right-click a step in the Power Query Editor and select
 ```powershell
 # Create .mez by zipping connector files
 $staging = New-Item -ItemType Directory -Path "staging" -Force
-Copy-Item "GizmoSQL.pq","GizmoSQL.query.pq","Diagnostics.pqm","FlightSqlAdbcConfig.pqm","SqlGenerator.pqm","SqlGeneratorCommon.pqm","TypeInfo.pqm","resources.resx" $staging
+Copy-Item "GizmoSQL.pq","GizmoSQL.query.pq","Diagnostics.pqm","SqlGenerator.pqm","SqlGeneratorCommon.pqm","resources.resx" $staging
 Copy-Item "icons\*.png" $staging
 Compress-Archive -Path "staging\*" -DestinationPath "GizmoSQL.zip"
 Rename-Item "GizmoSQL.zip" "GizmoSQL.mez" -Force
@@ -114,21 +115,9 @@ Then connect in Power BI with server `localhost`, port `31337`, username `gizmos
 
 ### Debug logging
 
-When a query fails — especially a DirectQuery join that surfaces as `QueryUserError` — turn on debug mode to capture exactly which fold step broke and (when applicable) which AstVisitor override threw.
+When a query fails, turn on the connector's trace output and Power BI Desktop's mashup tracing:
 
-**1. Enable the connector's debug mode** by creating a marker file (no rebuild required):
-
-```powershell
-New-Item -Path "C:\Users\Public\gizmosql_pbi_debug.flag" -ItemType File -Force
-```
-
-Remove the file to disable:
-
-```powershell
-Remove-Item -Path "C:\Users\Public\gizmosql_pbi_debug.flag"
-```
-
-(Power Query M custom connectors are sandboxed and cannot read OS environment variables, so a marker file at a non-user-specific path stands in for `GIZMOSQL_DEBUG=1`.)
+**1. Enable the connector's trace output** by setting `EnableTraceOutput = true` near the top of `GizmoSQL.pq` and rebuilding the `.mez` (development builds only).
 
 **2. Enable Power BI Desktop's mashup tracing**: `File` → `Options and settings` → `Options` → `Diagnostics` → check **Enable tracing**, then restart Power BI Desktop.
 
@@ -141,15 +130,11 @@ Remove-Item -Path "C:\Users\Public\gizmosql_pbi_debug.flag"
 **4. Filter for connector entries**:
 
 ```powershell
-Select-String -Path "$env:LOCALAPPDATA\Microsoft\Power BI Desktop\Traces\*.log" -Pattern "GizmoSQL.PBI" |
+Select-String -Path "$env:LOCALAPPDATA\Microsoft\Power BI Desktop\Traces\*.log" -Pattern "GizmoSQL/" |
     Select-Object -ExpandProperty Line
 ```
 
-What you'll see:
-- `[GizmoSQL.PBI/Connection]` — URI, default catalog, debug status (logged once per connection).
-- `[GizmoSQL.PBI/Credentials]` — auth kind and the connection-string record passed to ADBC, with `password` / `Authorization` masked.
-- `[GizmoSQL.PBI/Adbc.DataSource]` — wraps the call into Power BI's built-in ADBC handler; only logs on failure (Power Query owns the SQL synthesis inside this call, so the SQL string itself is not visible from M).
-- `[GizmoSQL.PBI/Override:<name>] FAILED on Kind=<...>` — a SqlGenerator override threw while folding. The trace record has the full AST node and the inner exception. The same information is also re-raised as a `GizmoSQL.FoldError` so the Power BI Desktop error dialog shows the handler name and AST kind instead of just `QueryUserError`.
+What you'll see: `GizmoSQL/Connection` (server, port, default catalog — once per connection) and `GizmoSQL/OAuth/StartLogin` (OAuth base URL when the browser flow starts). `Diagnostics.pqm` also retains an `IsEnabled` marker-file helper (`C:\Users\Public\gizmosql_pbi_debug.flag`) and a `MaskCredentials` redactor from the fold-bug investigation, available for wiring up runtime-toggled instrumentation without a rebuild.
 
 **Tip — see the folded SQL up to the breakpoint:** in **Power Query Editor**, right-click any step → **View Native Query**. Power BI shows the SQL it has folded so far. If the option is grayed out at a particular step (e.g. the join), that step is what broke folding.
 
@@ -171,7 +156,7 @@ Power BI Desktop
                 └── GizmoSQL Server (DuckDB-based)
 ```
 
-The connector is a Power Query M language section document that calls `Adbc.DataSource()` with a Flight SQL configuration plus a custom `SqlGenerator` (`SqlGenerator.pqm`) targeting [GizmoSQL](https://gizmodata.com/gizmosql)'s DuckDB dialect. The SQL generator emits DuckDB-native idioms (`date_trunc`, `date_diff`, `to_<unit>(n)` interval functions, `epoch_us`, `make_time`, `microsecond`, `instr`, `substring + concat`, `CAST(... AS VARCHAR)`) — verified against DuckDB locally via `tests/duckdb-folding.sql`.
+The connector is a Power Query M language section document built on the newer ADBC extensibility surface: it opens the driver with `Adbc.Connection()` and wires query folding through `SqlView.Generator()`, whose unique-identifier argument gives every table from one connection the same data-source identity — the prerequisite for folding cross-table joins in DirectQuery (see [#2](https://github.com/gizmodata/gizmosql-powerbi-connector/issues/2)). The Navigator tree is built from `information_schema` / `pragma_table_info` queries with foldable navigation steps. The SQL generator (`SqlGenerator.pqm`, vendored from [CurtHagenlocher/quack-net](https://github.com/CurtHagenlocher/quack-net), Apache-2.0, with `Text.*` predicate folds carried over from [spiceai/powerbi-connector](https://github.com/spiceai/powerbi-connector), MIT) targets [GizmoSQL](https://gizmodata.com/gizmosql)'s DuckDB dialect.
 
 ## License
 

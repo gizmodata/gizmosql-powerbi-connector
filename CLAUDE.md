@@ -2,7 +2,7 @@
 
 ## Architecture
 
-Power Query M connector wrapping `Adbc.DataSource()` for the Apache Arrow Flight SQL ADBC driver.
+Power Query M connector built on the newer (experimental) ADBC extensibility APIs — `Adbc.Connection()` + `SqlView.Generator()` — driving the Apache Arrow Flight SQL ADBC driver.
 
 ```
 Power BI Desktop
@@ -14,11 +14,10 @@ Power BI Desktop
 
 ## Key Files
 
-- `GizmoSQL.pq` — Main connector source (M language section document)
+- `GizmoSQL.pq` — Main connector source (M language section document): driver record, `Adbc.Connection` setup, navigation tables, OAuth handlers
 - `GizmoSQL.query.pq` — Test query for Power Query SDK
 - `Diagnostics.pqm` — Trace logging module
-- `FlightSqlAdbcConfig.pqm` — ADBC driver config (DLL name, entry point, capabilities)
-- `SqlGenerator.pqm` / `SqlGeneratorCommon.pqm` / `TypeInfo.pqm` — SQL-92 query folding generator (adapted from spiceai/powerbi-connector, MIT)
+- `SqlGenerator.pqm` / `SqlGeneratorCommon.pqm` — DuckDB query folding generator (vendored from CurtHagenlocher/quack-net, Apache-2.0, via PR #3; `Text.*` predicate folds carried over from the earlier spiceai/powerbi-connector lineage, MIT)
 - `resources.resx` — Localized strings (button text, labels)
 - `icons/` — Connector icons (16px–64px PNG)
 
@@ -27,7 +26,7 @@ Power BI Desktop
 ```powershell
 # Create unsigned .mez for development
 $staging = New-Item -ItemType Directory -Path "staging" -Force
-Copy-Item "GizmoSQL.pq","GizmoSQL.query.pq","Diagnostics.pqm","FlightSqlAdbcConfig.pqm","SqlGenerator.pqm","SqlGeneratorCommon.pqm","TypeInfo.pqm","resources.resx" $staging
+Copy-Item "GizmoSQL.pq","GizmoSQL.query.pq","Diagnostics.pqm","SqlGenerator.pqm","SqlGeneratorCommon.pqm","resources.resx" $staging
 Copy-Item "icons\*.png" $staging
 Compress-Archive -Path "staging\*" -DestinationPath "GizmoSQL.zip"
 Rename-Item "GizmoSQL.zip" "GizmoSQL.mez" -Force
@@ -39,18 +38,19 @@ Install to: `[Documents]\Power BI Desktop\Custom Connectors\`
 
 ## Key Patterns
 
-### Adbc.DataSource Options
-Query folding is driven by the `SqlGenerator` passed to `Adbc.DataSource`. The generator (`SqlGenerator.pqm`) is built on top of the Sql92 base via `SqlGeneratorHelpers[MergeOverrides]("Sql92", Override, false)` and includes function overrides for date/time, casts, aggregates, etc. `LimitClauseKind = LimitClauseKind.LimitOffset` is the key folding capability for GizmoSQL.
+### Adbc.Connection + SqlView.Generator (experimental APIs)
+The connector uses the newer ADBC extensibility surface instead of `Adbc.DataSource`: `Adbc.Connection(Driver, DatabaseProperties, ConnectionProperties, [ConnectionPoolType = 2])` opens the driver, and `SqlView.Generator(UniqueIdentifier, GizmoSqlGenerator, GetData)` wires query folding. The `UniqueIdentifier` (first argument) is what the mashup engine compares to decide whether two queries point at the same data source — it is keyed on the connection target (URI + default catalog), **never credentials**, so all tables from one connection share one identity and cross-table joins fold in DirectQuery (the `Adbc.DataSource` blocker in issue #2 / microsoft/vscode-powerquery-sdk#409). These APIs are experimental per Microsoft (mattmasson) and may change across Power BI Desktop releases. The Navigator is hand-rolled from `information_schema` / `pragma_table_info` queries with `OnSelectRows` folding; the generator is merged over the quack-net base via `SqlGeneratorHelpers[MergeOverrides]` with DuckDB-specific overrides for date/time, casts, aggregates, and text predicates.
 
 ### Trace Logging
 `EnableTraceOutput` (line 5 in `GizmoSQL.pq`) controls the Diagnostics module. Set to `false` for production, `true` for development. When enabled, traces appear in Power BI's Mashup Container logs at `%LOCALAPPDATA%\Microsoft\Power BI Desktop\Traces\`.
 
 ### Authentication
-The connector supports two auth kinds via `Extension.CurrentCredential()`, mapped to Flight SQL ADBC connection options:
+The connector supports three auth kinds via `Extension.CurrentCredential()`, mapped to Flight SQL ADBC database options:
 - `UsernamePassword` → `username` / `password`
 - `Key` → `adbc.flight.sql.authorization_header = "Bearer <token>"`
+- `OAuth` → `adbc.flight.sql.authorization_header = "Bearer <access_token>"`
 
-OAuth (browser-flow SSO) was supported on the v1.x ODBC connector via `authType=external`, where the ODBC driver handled the `/oauth/initiate` + poll dance internally. The generic Apache Flight SQL ADBC driver bundled in v2.x has no such hook, so OAuth is removed for now. The plan is to ship a GizmoSQL-specific Go ADBC driver that vendors `apache/arrow-adbc/go/adbc/driver/flightsql` and adds the external-auth flow — at which point we re-add `Implicit` here as a one-line flag mapping (mirroring how it worked on the ODBC connector).
+OAuth is implemented entirely in M (no driver involvement) against GizmoSQL Enterprise's server-side OAuth: `StartLogin` calls `GET /oauth/initiate` (on `--oauth-port`, default `31339`) and hands `auth_url` to Power BI's embedded browser with `CallbackUri = <base>/oauth/callback`; when the IdP redirects there, `FinishLogin` replays the callback request (in case the browser was closed before the server processed the code exchange) and polls `GET /oauth/token/{session_uuid}` (`IsRetry = true` to bypass the M request cache; `Function.InvokeAfter` between attempts) until `status = "complete"`. Caveats: `Web.Contents` cannot skip TLS verification, so the OAuth endpoint's cert must be client-trusted; no refresh token, so expired JWTs require interactive re-auth (scheduled refresh on a gateway will prompt).
 
 ## Changelog
 - **Always update `CHANGELOG.md`** when making changes — bug fixes, new features, behavioral changes, or breaking changes

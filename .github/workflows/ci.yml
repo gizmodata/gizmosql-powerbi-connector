@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, adbc-flight-sql]
     tags: ["v*"]
     paths-ignore: ["**.md"]
   pull_request:
-    branches: [main]
+    branches: [main, adbc-flight-sql]
     paths-ignore: ["**.md"]
 
 permissions:
@@ -28,10 +28,8 @@ jobs:
           Copy-Item "GizmoSQL.pq" $stagingDir
           Copy-Item "GizmoSQL.query.pq" $stagingDir
           Copy-Item "Diagnostics.pqm" $stagingDir
-          Copy-Item "FlightSqlAdbcConfig.pqm" $stagingDir
           Copy-Item "SqlGenerator.pqm" $stagingDir
           Copy-Item "SqlGeneratorCommon.pqm" $stagingDir
-          Copy-Item "TypeInfo.pqm" $stagingDir
           Copy-Item "resources.resx" $stagingDir
 
           # Icons (flattened into .mez root for Extension.Contents)

@@ -1,8 +1,6 @@
+// Test query for the Power Query SDK: connect, authenticate, and show the
+// catalog navigation table.
 let
-    source = Adbc.Query(
-        Extension.LoadFunction("FlightSqlAdbcConfig.pqm"),
-        [ uri = "grpc://localhost:31337", username = "gizmosql_user", password = "gizmosql_password" ],
-        "SELECT 42 AS answer"
-    )
+    Nav = GizmoSQL.Contents("localhost", 31337, false, false)
 in
-    source
+    Nav
