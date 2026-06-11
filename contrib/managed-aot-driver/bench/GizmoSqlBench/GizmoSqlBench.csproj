@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>GizmoSqlBench</AssemblyName>
+    <RootNamespace>GizmoSqlBench</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\GizmoData.Adbc.Driver.GizmoSql\GizmoData.Adbc.Driver.GizmoSql.csproj" />
+  </ItemGroup>
+
+</Project>

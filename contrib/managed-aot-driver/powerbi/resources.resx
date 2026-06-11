@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute name="errorCode" type="xsd:string" msdata:Ordinal="5" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="ButtonTitle" errorCode="001" xml:space="preserve">
+    <value>GizmoSQL</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="ButtonHelp" errorCode="002" xml:space="preserve">
+    <value>Import data from a GizmoSQL server.</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="FormulaTitle" errorCode="003" xml:space="preserve">
+    <value>GizmoSQL</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="DatabaseParameterCaption" errorCode="004" xml:space="preserve">
+    <value>Server</value>
+  </data>
+  <data name="GizmoSql_Description" errorCode="005" xml:space="preserve">
+    <value>Import data from a GizmoSQL server over Arrow Flight SQL.</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="GizmoSql_LongDescription" errorCode="006" xml:space="preserve">
+    <value>Returns a navigation table listing the catalogs, schemas, and tables on the GizmoSQL server at &lt;code&gt;server&lt;/code&gt; (e.g. &lt;code&gt;grpc+tls://host:31337&lt;/code&gt;). An optional record parameter, &lt;code&gt;options&lt;/code&gt;, may be specified to control the following options:
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;SkipTlsVerification&lt;/code&gt;: When &lt;code&gt;true&lt;/code&gt;, the TLS certificate presented by the server is not validated. Use for servers with self-signed certificates. Defaults to &lt;code&gt;false&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+    </value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="OptionsParameterCaption" errorCode="007" xml:space="preserve">
+    <value>Advanced Options</value>
+  </data>
+  <data name="SkipTlsVerificationCaption" errorCode="008" xml:space="preserve">
+    <value>Skip TLS verification</value>
+  </data>
+  <data name="ValidLogicalValue" errorCode="014" xml:space="preserve">
+    <value>true or false</value>
+  </data>
+  <data name="InvalidOptionsKey" errorCode="010" xml:space="preserve">
+    <value>'#{0}' are not valid GizmoSQL options. Valid options are: '#{1}'</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="InvalidOptionsValue" errorCode="011" xml:space="preserve">
+    <value>This GizmoSQL function does not support the option '#{0}' with value '#{1}'. Valid value is #{2}.</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="AuthenticationLabel" errorCode="012" xml:space="preserve">
+    <value>GizmoSQL</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="TlsOverrideHostnameCaption" errorCode="015" xml:space="preserve">
+    <value>TLS override hostname</value>
+  </data>
+  <data name="ValidTextValue" errorCode="016" xml:space="preserve">
+    <value>a text value</value>
+  </data>
+  <data name="SqlStatementCaption" errorCode="017" xml:space="preserve">
+    <value>SQL statement</value>
+  </data>
+  <data name="QueryFormulaTitle" errorCode="018" xml:space="preserve">
+    <value>GizmoSQL query</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="GizmoSqlQuery_Description" errorCode="019" xml:space="preserve">
+    <value>Runs a SQL statement on a GizmoSQL server and returns the result.</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+  <data name="GizmoSqlQuery_LongDescription" errorCode="020" xml:space="preserve">
+    <value>Executes &lt;code&gt;query&lt;/code&gt; against the GizmoSQL server at &lt;code&gt;server&lt;/code&gt; and returns the result as a table. An optional &lt;code&gt;options&lt;/code&gt; record accepts the same options as GizmoSQL.Database (e.g. &lt;code&gt;SkipTlsVerification&lt;/code&gt;).</value>
+    <comment>{Locked="GizmoSQL"}</comment>
+  </data>
+</root>

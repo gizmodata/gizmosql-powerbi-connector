@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>GizmoData.Adbc.Driver.GizmoSql.Native</RootNamespace>
+    <AssemblyName>gizmosql_adbc</AssemblyName>
+    <Description>Native AOT ADBC driver shim for GizmoSQL — produces a self-contained C-ABI DLL (gizmosql_adbc.dll) with a GizmoSqlAdbcDriverInit entrypoint, loadable by the ADBC driver manager and Power BI Desktop.</Description>
+
+    <!-- Native AOT settings -->
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Trim/AOT warnings from Apache.Arrow / Apache.Arrow.Adbc / Grpc / protobuf
+         transitive deps are out of our control; keep them as warnings so the
+         build can proceed. AOT analyzers still flag our own code, which we triage. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GizmoData.Adbc.Driver.GizmoSql\GizmoData.Adbc.Driver.GizmoSql.csproj" />
+  </ItemGroup>
+
+</Project>

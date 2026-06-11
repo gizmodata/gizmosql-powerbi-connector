@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <RootNamespace>GizmoData.Adbc.Driver.GizmoSql</RootNamespace>
+    <AssemblyName>GizmoData.Adbc.Driver.GizmoSql</AssemblyName>
+    <Description>GizmoSQL ADBC driver for Power BI — C# Flight SQL driver enabling Power BI integration with GizmoSQL.</Description>
+    <PackageId>GizmoData.Adbc.Driver.GizmoSql</PackageId>
+    <PackageTags>adbc;arrow;flightsql;gizmosql;powerbi;grpc</PackageTags>
+    <PackageReadmeFile>readme.md</PackageReadmeFile>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="readme.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Apache.Arrow.Adbc" Version="0.22.0" />
+    <PackageReference Include="Apache.Arrow.Flight" Version="22.1.0" />
+    <PackageReference Include="Google.Protobuf" Version="3.31.1" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.71.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.71.0" PrivateAssets="All" />
+    <PackageReference Include="System.Text.Json" Version="9.0.9" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Net.Http.WinHttpHandler" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Protobuf Include="Proto/FlightSql.proto" Access="Internal" GrpcServices="None" />
+  </ItemGroup>
+
+</Project>
