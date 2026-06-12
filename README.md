@@ -1,5 +1,11 @@
 # [GizmoSQL](https://gizmodata.com/gizmosql) Power BI Connector
 
+[![Latest release](https://img.shields.io/github/v/release/gizmodata/gizmosql-powerbi-connector?sort=semver&label=release)](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
+[![Download MSI installer](https://img.shields.io/badge/download-MSI%20installer-0078D4?logo=windows&logoColor=white)](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest/download/GizmoSQL-PowerBI-Setup-x64.msi)
+[![Download signed .pqx](https://img.shields.io/badge/download-signed%20.pqx-5E5E5E?logo=powerbi&logoColor=white)](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest/download/GizmoSQL.pqx)
+[![CI](https://github.com/gizmodata/gizmosql-powerbi-connector/actions/workflows/ci.yml/badge.svg)](https://github.com/gizmodata/gizmosql-powerbi-connector/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/github/license/gizmodata/gizmosql-powerbi-connector?label=license)](LICENSE)
+
 A Power Query custom connector (`.pqx`) that connects [Power BI Desktop](https://powerbi.microsoft.com/en-us/desktop/) directly to [GizmoSQL](https://gizmodata.com/gizmosql) via [ADBC](https://arrow.apache.org/adbc/) over [Arrow Flight SQL](https://arrow.apache.org/docs/format/FlightSql.html). Data flows column-natively in Apache Arrow format from server to Power BI — no row/column conversions in the driver path.
 
 ## Requirements
