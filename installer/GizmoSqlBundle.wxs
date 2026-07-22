@@ -10,7 +10,8 @@
     <Icon Id="gizmosql_odbc.ico" SourceFile="gizmosql_odbc.ico" />
     <Property Id="ARPPRODUCTICON" Value="gizmosql_odbc.ico" />
 
-    <MajorUpgrade DowngradeErrorMessage="A newer version of GizmoSQL Power BI Connector is already installed." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of GizmoSQL Power BI Connector is already installed." />
 
     <Media Id="1" Cabinet="gizmosql.cab" EmbedCab="yes" />
 

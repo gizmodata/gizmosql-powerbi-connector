@@ -338,26 +338,37 @@ jobs:
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.Drawing
-          # Create banner (493x58)
+
+          # Draw the logo scaled to fit inside a max box while preserving its
+          # aspect ratio (the source logo is square 1024x1024 — drawing it into
+          # a hardcoded wide box squishes it).
+          function Draw-LogoFit($graphics, $img, $x, $y, $maxW, $maxH) {
+            $scale = [Math]::Min($maxW / $img.Width, $maxH / $img.Height)
+            $w = [int]($img.Width * $scale)
+            $h = [int]($img.Height * $scale)
+            $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $graphics.DrawImage($img, $x, $y, $w, $h)
+          }
+
           $logo = [System.Drawing.Image]::FromFile("${{ github.workspace }}\installer\gizmosql_logo.png")
+
+          # Create banner (493x58) — logo small on the RIGHT since WixUI puts
+          # the page title text on the left.
           $banner = New-Object System.Drawing.Bitmap(493, 58)
           $g = [System.Drawing.Graphics]::FromImage($banner)
           $g.Clear([System.Drawing.Color]::White)
-          $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-          $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-          $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-          $g.DrawImage($logo, 10, 4, 200, 50)
+          Draw-LogoFit $g $logo 437 7 44 44
           $g.Dispose()
           $banner.Save("${{ github.workspace }}\installer\banner.bmp", [System.Drawing.Imaging.ImageFormat]::Bmp)
-          # Create dialog (493x312) — logo in bottom-left to avoid
-          # overlapping WiX welcome/completion title text area.
+
+          # Create dialog (493x312) — logo in the left strip; WixUI
+          # welcome/completion text column starts around x=165.
           $dialog = New-Object System.Drawing.Bitmap(493, 312)
           $g = [System.Drawing.Graphics]::FromImage($dialog)
           $g.Clear([System.Drawing.Color]::White)
-          $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-          $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-          $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-          $g.DrawImage($logo, 20, 220, 160, 40)
+          Draw-LogoFit $g $logo 22 30 120 120
           $g.Dispose()
           $dialog.Save("${{ github.workspace }}\installer\dialog.bmp", [System.Drawing.Imaging.ImageFormat]::Bmp)
           $logo.Dispose()
@@ -371,8 +382,9 @@ jobs:
 
       - name: Build MSI
         run: |
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          if (-not $version) { $version = "0.0.0" }
+          $ref = "${{ github.ref_name }}"
+          $version = $ref.TrimStart("v")
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { Write-Error "Could not derive a semantic version from '$ref'"; exit 1 }
           wix build `
             "${{ github.workspace }}\installer\GizmoSqlBundle.wxs" `
             -arch x64 `

@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **MSI installer artwork no longer squished.** The CI step that renders the WixUI banner/dialog bitmaps drew the square 1024x1024 GizmoSQL logo into hardcoded 4:1 boxes, distorting it. The logo is now scaled aspect-ratio-correct: small on the right of the 493x58 banner (clear of the left-aligned page title) and in the left strip of the 493x312 dialog (clear of the text column starting ~x=165).
+- **MSI upgrade hardening.** `MajorUpgrade` now sets `AllowSameVersionUpgrades="yes"` so reinstalling the same version replaces files instead of installing side-by-side, and the CI MSI build fails fast if a semantic version cannot be derived from the release tag (previously it silently fell back to `0.0.0`, which would break upgrade ordering).
+
 ## [v2.0.0] - 2026-06-11
 
 **BREAKING:** v2.0 replaces the ODBC backend with ADBC over Arrow Flight SQL. Data flows column-natively in Apache Arrow format from server to Power BI — no row/column conversions in the driver path. You must install the Apache Flight SQL ADBC driver (bundled by the MSI installer), and the GizmoSQL ODBC driver is no longer used.
