@@ -12,11 +12,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # GizmoSQL ADBC driver release bundled with the connector (and used by
-  # PQTest). Windows amd64 tarball from github.com/gizmodata/gizmosql-adbc.
-  GIZMOSQL_ADBC_VERSION: v2.0.10
-
 jobs:
   build-connector:
     runs-on: windows-latest
@@ -105,16 +100,16 @@ jobs:
           Get-ChildItem "C:\Program Files\GizmoSQL" | Select-Object Name
           echo "GIZMOSQL_SERVER=$serverExe" >> $env:GITHUB_ENV
 
-      - name: Download GizmoSQL ADBC driver
+      - name: Download Apache Flight SQL ADBC driver
         shell: pwsh
         run: |
-          $ver = $env:GIZMOSQL_ADBC_VERSION
-          $name = "libadbc_driver_gizmosql-$ver-windows_amd64"
-          $url = "https://github.com/gizmodata/gizmosql-adbc/releases/download/$ver/$name.tar.gz"
-          Invoke-WebRequest -Uri $url -OutFile driver.tar.gz
-          tar -xzf driver.tar.gz
+          # The Windows DLL is shipped inside the Python wheel as libadbc_driver_flightsql.so
+          # (Go-cross-compile naming quirk). Extract and rename to .dll.
+          $url = "https://github.com/apache/arrow-adbc/releases/download/apache-arrow-adbc-23/adbc_driver_flightsql-1.11.0-py3-none-win_amd64.whl"
+          Invoke-WebRequest -Uri $url -OutFile flightsql.whl
+          Expand-Archive -Path flightsql.whl -DestinationPath flightsql-extracted -Force
           New-Item -ItemType Directory -Path driver -Force | Out-Null
-          Copy-Item "$name\libadbc_driver_gizmosql.dll" driver\libadbc_driver_gizmosql.dll
+          Copy-Item flightsql-extracted\adbc_driver_flightsql\libadbc_driver_flightsql.so driver\libadbc_driver_flightsql.dll
           $dllPath = (Resolve-Path "driver").Path
           Write-Host "Adding $dllPath to PATH so the mashup container can load the driver"
           echo "$dllPath" >> $env:GITHUB_PATH
@@ -320,19 +315,19 @@ jobs:
           name: GizmoSQL-signed.pqx
           path: installer/connector
 
-      - name: Download GizmoSQL ADBC driver
+      - name: Download Apache Flight SQL ADBC driver
         shell: pwsh
         run: |
-          # Bundle a pinned GizmoSQL ADBC driver release so the connector ships
-          # with a known-good driver (see GIZMOSQL_ADBC_VERSION at the top).
-          $ver = $env:GIZMOSQL_ADBC_VERSION
-          $name = "libadbc_driver_gizmosql-$ver-windows_amd64"
-          $url = "https://github.com/gizmodata/gizmosql-adbc/releases/download/$ver/$name.tar.gz"
-          Invoke-WebRequest -Uri $url -OutFile driver.tar.gz
-          tar -xzf driver.tar.gz
+          # Bundle a pinned ADBC driver version so the connector ships with a
+          # known-good driver. Tracks apache/arrow-adbc release apache-arrow-adbc-23
+          # (driver version 1.11.0). The Windows DLL is shipped inside the Python
+          # wheel as libadbc_driver_flightsql.so; we extract and rename to .dll.
+          $url = "https://github.com/apache/arrow-adbc/releases/download/apache-arrow-adbc-23/adbc_driver_flightsql-1.11.0-py3-none-win_amd64.whl"
+          Invoke-WebRequest -Uri $url -OutFile flightsql.whl
+          Expand-Archive -Path flightsql.whl -DestinationPath flightsql-extracted -Force
           New-Item -ItemType Directory -Path installer\bin -Force | Out-Null
-          Copy-Item "$name\libadbc_driver_gizmosql.dll" installer\bin\libadbc_driver_gizmosql.dll
-          Write-Host "Bundled libadbc_driver_gizmosql.dll $ver ($(Get-Item installer\bin\libadbc_driver_gizmosql.dll | Select-Object -ExpandProperty Length) bytes)"
+          Copy-Item flightsql-extracted\adbc_driver_flightsql\libadbc_driver_flightsql.so installer\bin\libadbc_driver_flightsql.dll
+          Write-Host "Bundled libadbc_driver_flightsql.dll ($(Get-Item installer\bin\libadbc_driver_flightsql.dll | Select-Object -ExpandProperty Length) bytes)"
 
       - name: Install WiX Toolset
         run: |

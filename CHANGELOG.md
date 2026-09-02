@@ -4,12 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-- **The connector now drives GizmoSQL's own ADBC driver** ([gizmosql-adbc](https://github.com/gizmodata/gizmosql-adbc) v2.0.10, `libadbc_driver_gizmosql.dll`) instead of the stock Apache Flight SQL ADBC driver (`libadbc_driver_flightsql.dll` from `apache-arrow-adbc-23`, driver 1.11.0). It is the same Apache Flight SQL driver underneath (arrow-adbc 1.12) with GizmoSQL extensions on top, so every existing option key (`uri`, `username`/`password`, `adbc.flight.sql.authorization_header`, `adbc.flight.sql.client_option.tls_skip_verify`, `adbc.connection.catalog`) behaves the same. What changes for users:
-  - **Abandoned queries are cancelled on the server.** Closing a stream early (a cancelled refresh, a DirectQuery preview you navigate away from) sends Flight `CancelFlightInfo`, so the server interrupts the query instead of running it to completion or until `--query-timeout` (needs GizmoSQL server ≥ 1.38.0).
-  - **DDL/DML issued through the connector executes immediately** under GizmoSQL's lazy execution (the driver routes it through `DoPut`), rather than only when the result is read.
-  - The MSI bundles `libadbc_driver_gizmosql.dll` (new installer component; the old `libadbc_driver_flightsql.dll` is no longer installed). The bundled driver version is pinned by `GIZMOSQL_ADBC_VERSION` in the CI workflow.
-
 ## [v2.0.1] - 2026-07-22
 
 ### Fixed

@@ -41,17 +41,14 @@ SqlView.Generator =
         (uniqueIdentifier, sqlGenerator, getData) =>
             error Error.Record("Expression.Error", "SqlView.Generator is not available in this Power BI Desktop version. Update to a recent build.");
 
-// GizmoSQL's own ADBC driver (github.com/gizmodata/gizmosql-adbc, Go). It is
-// the Apache Arrow Flight SQL driver plus GizmoSQL specifics — server-side
-// query cancellation (CancelFlightInfo), DDL/DML routing, the gizmosql://
-// URI scheme — and accepts the same adbc.flight.sql.* option keys. Same
-// discovery mechanism as before: the DLL is resolved by name via PATH.
+// Stock Apache Arrow Flight SQL ADBC driver (Go) — same driver and discovery
+// mechanism as the previous Adbc.DataSource configuration.
 Driver = [
-    Name = "GizmoSQLAdbc",
-    Folder = "GizmoSQL",
-    File = "libadbc_driver_gizmosql.dll",
+    Name = "FlightSqlAdbcGizmoSQL",
+    Folder = "FlightSQL",
+    File = "libadbc_driver_flightsql.dll",
     DriverType = "Unmanaged",
-    EntryPoint = "GizmoSQLDriverInit"
+    EntryPoint = "FlightSqlDriverInit"
 ];
 
 // "Get Data" dialog parameters — kept to match the v1.x ODBC connector

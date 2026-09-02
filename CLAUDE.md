@@ -7,7 +7,7 @@ Power Query M connector built on the newer (experimental) ADBC extensibility API
 ```
 Power BI Desktop
     └── GizmoSQL.pqx (this connector)
-        └── libadbc_driver_gizmosql.dll (GizmoSQL ADBC driver, gizmodata/gizmosql-adbc)
+        └── libadbc_driver_flightsql.dll (Apache Arrow Flight SQL ADBC driver)
             └── gRPC / Arrow Flight SQL
                 └── GizmoSQL Server (DuckDB-based)
 ```
@@ -32,7 +32,7 @@ Compress-Archive -Path "staging\*" -DestinationPath "GizmoSQL.zip"
 Rename-Item "GizmoSQL.zip" "GizmoSQL.mez" -Force
 ```
 
-The GizmoSQL ADBC driver (`libadbc_driver_gizmosql.dll`) must be installed/discoverable by Power BI Desktop separately — it's not bundled in the `.mez`. Get the Windows amd64 tarball from the `gizmodata/gizmosql-adbc` GitHub release pinned by `GIZMOSQL_ADBC_VERSION` in `.github/workflows/ci.yml` (the MSI bundles that same DLL).
+The Apache Flight SQL ADBC driver (`libadbc_driver_flightsql.dll`) must be installed/discoverable by Power BI Desktop separately — it's not bundled in the `.mez`. Get it from `apache/arrow-adbc` releases.
 
 Install to: `[Documents]\Power BI Desktop\Custom Connectors\`
 

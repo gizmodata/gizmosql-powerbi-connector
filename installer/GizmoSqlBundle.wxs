@@ -45,16 +45,14 @@
     </StandardDirectory>
   </Fragment>
 
-  <!-- GizmoSQL ADBC driver (gizmodata/gizmosql-adbc). The driver is a Go-built
-       native DLL (no VC++ runtime dependency). Adding the install dir to PATH so
-       the Power BI mashup container resolves "libadbc_driver_gizmosql.dll" by name.
-       New component GUID: the key-path file changed from the Apache Flight SQL
-       driver DLL, and Windows Installer component rules require a new identity. -->
+  <!-- Apache Arrow Flight SQL ADBC driver. The driver is a Go-built native DLL
+       (no VC++ runtime dependency). Adding the install dir to PATH so the
+       Power BI mashup container resolves "libadbc_driver_flightsql.dll" by name. -->
   <Fragment>
     <ComponentGroup Id="DriverComponents" Directory="INSTALLFOLDER">
-      <Component Id="AdbcGizmoSqlDll" Guid="7A1F3C52-9D4B-4E6A-8F21-3B5C9E0D7A64">
-        <File Id="LibAdbcDriverGizmoSqlDll"
-              Source="!(bindpath.BinDir)\libadbc_driver_gizmosql.dll"
+      <Component Id="AdbcFlightSqlDll" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+        <File Id="LibAdbcDriverFlightSqlDll"
+              Source="!(bindpath.BinDir)\libadbc_driver_flightsql.dll"
               KeyPath="yes" />
         <Environment Id="AdbcDriverPath"
                      Name="PATH"
