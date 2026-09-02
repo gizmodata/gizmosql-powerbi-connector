@@ -16,7 +16,7 @@ A Power Query custom connector (`.pqx`) that connects [Power BI Desktop](https:/
 
 ## Features
 
-- **ADBC over Arrow Flight SQL** — column-native transport via the Apache Flight SQL ADBC driver; no ODBC dependency
+- **ADBC over Arrow Flight SQL** — column-native transport via the [GizmoSQL ADBC driver](https://github.com/gizmodata/gizmosql-adbc) (Apache Flight SQL plus server-side query cancellation); no ODBC dependency
 - **DirectQuery support** — live queries against GizmoSQL without data import
 - **Hierarchical navigation** — browse databases > schemas > tables in the Navigator pane
 - **Query folding** — Power BI pushes filters, joins, and aggregations down as SQL (`LIMIT`/`OFFSET`, `CAST`, SQL-92)
@@ -29,7 +29,7 @@ A Power Query custom connector (`.pqx`) that connects [Power BI Desktop](https:/
 ### MSI Installer (recommended)
 
 1. Download `GizmoSQL-PowerBI-Setup-x64.msi` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
-2. Run the installer — it installs the Apache Flight SQL ADBC driver DLL (`libadbc_driver_flightsql.dll`) to `Program Files\GizmoSQL Power BI Connector\` and adds it to the system `PATH`, drops the signed connector into Power BI's Custom Connectors directory, and registers the signing certificate as trusted with Power BI
+2. Run the installer — it installs the GizmoSQL ADBC driver DLL (`libadbc_driver_gizmosql.dll`) to `Program Files\GizmoSQL Power BI Connector\` and adds it to the system `PATH`, drops the signed connector into Power BI's Custom Connectors directory, and registers the signing certificate as trusted with Power BI
 3. Restart Power BI Desktop
 4. The connector appears under **Get Data > Database > GizmoSQL**
 
@@ -37,7 +37,7 @@ No security setting changes required — the installer works with Power BI's def
 
 ### Signed `.pqx` (manual)
 
-1. Place the Apache Flight SQL ADBC driver `libadbc_driver_flightsql.dll` somewhere on the system `PATH`. The driver ships as a `.so`-named file inside the [Apache ADBC Python wheel for Windows](https://github.com/apache/arrow-adbc/releases/latest); extract `libadbc_driver_flightsql.so` from the wheel and rename it to `libadbc_driver_flightsql.dll`.
+1. Place the GizmoSQL ADBC driver `libadbc_driver_gizmosql.dll` somewhere on the system `PATH`. Download `libadbc_driver_gizmosql-<version>-windows_amd64.tar.gz` from the [gizmosql-adbc releases](https://github.com/gizmodata/gizmosql-adbc/releases/latest) and extract the DLL.
 2. Download `GizmoSQL.pqx` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
 3. Copy to `[Documents]\Power BI Desktop\Custom Connectors\` (create the folder if it doesn't exist)
 4. Restart Power BI Desktop
@@ -46,7 +46,7 @@ No security setting changes required — the installer works with Power BI's def
 
 ### Unsigned `.mez` (development only)
 
-1. Place `libadbc_driver_flightsql.dll` on the system `PATH` (see step 1 above)
+1. Place `libadbc_driver_gizmosql.dll` on the system `PATH` (see step 1 above)
 2. Download `GizmoSQL.mez` from the [latest release](https://github.com/gizmodata/gizmosql-powerbi-connector/releases/latest)
 3. Copy to `[Documents]\Power BI Desktop\Custom Connectors\`
 4. In Power BI Desktop, go to **File > Options > Security > Data Extensions** and select **(Not Recommended) Allow any extension to load without validation or warning**
@@ -168,7 +168,7 @@ A fold failure on the connector side means **no SQL reaches the server at all** 
 ```
 Power BI Desktop
     └── GizmoSQL.pqx (this connector)
-        └── libadbc_driver_flightsql.dll (Apache Flight SQL ADBC driver)
+        └── libadbc_driver_gizmosql.dll (GizmoSQL ADBC driver — Apache Flight SQL + GizmoSQL extensions)
             └── gRPC / Arrow Flight SQL
                 └── GizmoSQL Server (DuckDB-based)
 ```
