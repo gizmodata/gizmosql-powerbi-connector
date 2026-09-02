@@ -44,16 +44,11 @@ SqlView.Generator =
 // GizmoSQL's own ADBC driver (github.com/gizmodata/gizmosql-adbc, Go). It is
 // the Apache Arrow Flight SQL driver plus GizmoSQL specifics — server-side
 // query cancellation (CancelFlightInfo), DDL/DML routing, the gizmosql://
-// URI scheme — and accepts the same adbc.flight.sql.* option keys.
-//
-// Discovery: the mashup engine resolves an ADBC driver at
-// "<Mashup>\ADBC Drivers\<Folder>\<File>" (no PATH fallback). Power BI ships
-// the Apache driver under its own "FlightSQL" folder; ours lives where the
-// MSI installs it, so Folder is that absolute path (an absolute Folder wins
-// over the "<Mashup>\ADBC Drivers" base).
+// URI scheme — and accepts the same adbc.flight.sql.* option keys. Same
+// discovery mechanism as before: the DLL is resolved by name via PATH.
 Driver = [
     Name = "GizmoSQLAdbc",
-    Folder = "C:\Program Files\GizmoSQL Power BI Connector",
+    Folder = "GizmoSQL",
     File = "libadbc_driver_gizmosql.dll",
     DriverType = "Unmanaged",
     EntryPoint = "GizmoSQLDriverInit"
