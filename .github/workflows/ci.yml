@@ -115,6 +115,11 @@ jobs:
           tar -xzf driver.tar.gz
           New-Item -ItemType Directory -Path driver -Force | Out-Null
           Copy-Item "$name\libadbc_driver_gizmosql.dll" driver\libadbc_driver_gizmosql.dll
+          # The connector's Driver record points at the MSI install folder;
+          # put the DLL there so PQTest resolves it exactly like Desktop will.
+          $installDir = "C:\Program Files\GizmoSQL Power BI Connector"
+          New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+          Copy-Item "$name\libadbc_driver_gizmosql.dll" "$installDir\libadbc_driver_gizmosql.dll"
           $dllPath = (Resolve-Path "driver").Path
           Write-Host "Adding $dllPath to PATH so the mashup container can load the driver"
           echo "$dllPath" >> $env:GITHUB_PATH
